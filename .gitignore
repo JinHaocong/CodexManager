@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+dist-electron/
+release/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env files
+.env
+.env.*
+!.env.example
+
+# editor / system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# cache
+.cache/
+.eslintcache
+

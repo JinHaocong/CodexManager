@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.png binary
+*.icns binary
+*.ico binary
+*.dmg binary
+*.zip binary
+*.blockmap binary
+
