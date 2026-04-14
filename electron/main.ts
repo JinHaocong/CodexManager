@@ -44,17 +44,6 @@ async function createWindow() {
  * Electron 应用启动入口。
  */
 app.whenReady().then(() => {
-  // 如果是打包后的环境，且未在应用程序文件夹中运行，则自动移入（如果存在旧版本则自动覆盖）
-  if (app.isPackaged && !app.isInApplicationsFolder()) {
-    try {
-      app.moveToApplicationsFolder({
-        conflictHandler: () => true // 遇到冲突（已有旧版本）时返回 true，强制静默替换旧版本
-      })
-    } catch (err) {
-      console.error('Failed to move to Applications folder:', err)
-    }
-  }
-
   // 隐藏 Dock 栏，实现纯粹的菜单栏应用
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide()

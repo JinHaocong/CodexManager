@@ -21,9 +21,5 @@ export const APP_CONFIG = {
  * @param segments 资源路径片段。
  */
 export function getAssetPath(...segments: string[]): string {
-  const basePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.join(__dirname, '../assets')
-
-  return path.join(basePath, ...segments)
+  return path.join(__dirname, '../assets', ...segments)
 }
