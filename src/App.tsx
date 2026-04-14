@@ -181,7 +181,8 @@ function App() {
       return t.personalWorkspace
     }
 
-    return account.orgName || t.personalWorkspace
+    const orgName = account.orgName || t.personalWorkspace
+    return `${account.email} (${orgName})`
   }, [t.personalWorkspace])
 
   /**
@@ -264,7 +265,7 @@ function App() {
         totalCount={accounts.length}
         readyCount={readyCount}
         attentionCount={attentionCount}
-        activeLabel={activeAccount?.orgName || t.meta.inactive}
+        activeLabel={activeAccount ? getAccountDisplayName(activeAccount) : t.meta.inactive}
         selectedFilter={filter}
         lastUpdatedLabel={lastUpdatedLabel}
         isRefreshing={isRefreshing}
