@@ -2,6 +2,11 @@
 
 一个面向 macOS 菜单栏场景的 Codex 账号管理工具，用来集中查看账号额度、切换工作空间，并在当前账号 5 小时额度耗尽时自动提示切换到可用账号。
 
+<p align="center">
+  <!-- 请将您刚刚截图的图片保存为 assets/screenshot.png 并放置于此处 -->
+  <img src="./assets/screenshot.png" alt="CodexManager App Screenshot" width="360">
+</p>
+
 ## 项目亮点
 
 - 菜单栏形态，点击托盘即可展开主面板
@@ -137,4 +142,3 @@ git push -u origin main
 - 当前应用偏向 macOS 菜单栏使用场景
 - 仓库里不要提交个人账号 token、OAuth 返回结果或本地缓存文件
 - 如果后续准备开源，建议再补充 `LICENSE`
-
