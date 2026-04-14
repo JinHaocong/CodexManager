@@ -100,12 +100,14 @@ export function AccountCard({
           return (
             <div className="usage-card" key={metric.label}>
               <div className="usage-card-top">
-                <span className="usage-label" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {metric.label}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span className="usage-label">{metric.label}</span>
                   {metric.resetText && (
-                    <span style={{ textTransform: 'none', opacity: 0.85 }}>({metric.resetText})</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-soft)', textTransform: 'none' }}>
+                      {metric.resetText}
+                    </span>
                   )}
-                </span>
+                </div>
                 <strong className={`usage-value usage-value--${usageTone}`}>{metric.value}%</strong>
               </div>
               <div className="progress-track">
