@@ -1,8 +1,4 @@
-import type { IpcRenderer } from 'electron'
-
 import type { Account, AccountsCheckPayload, Lang, ProxyResponse, UsagePayload } from '../types'
-
-const { ipcRenderer } = window.require('electron') as { ipcRenderer: IpcRenderer }
 
 /**
  * 通过主进程代理发起请求，统一补齐鉴权与语言头。
@@ -12,7 +8,7 @@ const { ipcRenderer } = window.require('electron') as { ipcRenderer: IpcRenderer
  * @param lang 当前界面语言。
  */
 export async function fetchThroughProxy<T>(url: string, account: Account, lang: Lang): Promise<ProxyResponse<T>> {
-  return ipcRenderer.invoke('proxy-request', {
+  return window.codexAPI.proxyRequest<T>({
     url,
     headers: {
       'Authorization': `Bearer ${account.access_token}`,
@@ -23,6 +19,13 @@ export async function fetchThroughProxy<T>(url: string, account: Account, lang: 
       'Referer': 'https://chatgpt.com/codex/settings/usage'
     }
   })
+}
+
+/**
+ * 获取当前设备相对 UTC 的分钟偏移，供组织接口按本机时区返回更准确的数据。
+ */
+function getTimezoneOffsetMinutes(): number {
+  return new Date().getTimezoneOffset()
 }
 
 /**
@@ -37,7 +40,7 @@ export function getUsage(account: Account, lang: Lang): Promise<ProxyResponse<Us
  */
 export function getAccountsCheck(account: Account, lang: Lang): Promise<ProxyResponse<AccountsCheckPayload>> {
   return fetchThroughProxy<AccountsCheckPayload>(
-    'https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480',
+    `https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=${getTimezoneOffsetMinutes()}`,
     account,
     lang
   )

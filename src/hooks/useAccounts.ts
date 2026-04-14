@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { IpcRenderer } from 'electron'
 
 import { getUsage, getAccountsCheck } from '../services/api'
-import type { Account, Lang } from '../types'
+import type { Account, Lang, OAuthTokenPayload, RefreshIntervalMinutes } from '../types'
 import { getLatestUpdateAt } from '../utils/account-display'
-
-const { ipcRenderer } = window.require('electron') as { ipcRenderer: IpcRenderer }
 
 /**
  * 管理账户列表、刷新状态与本地持久化。
  *
  * @param lang 当前界面语言，会影响请求头中的语言参数。
+ * @param refreshIntervalMinutes 后台自动刷新间隔，单位分钟。
  */
-export function useAccounts(lang: Lang) {
+export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalMinutes) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -25,8 +23,11 @@ export function useAccounts(lang: Lang) {
 
     const init = async (): Promise<void> => {
       // 首次启动优先恢复本地缓存，避免界面在空态和真实数据之间闪动。
-      const savedAccounts = await ipcRenderer.invoke('get-accounts') as Account[] | undefined
-      const savedActiveId = await ipcRenderer.invoke('get-active-id') as string | null | undefined
+      const [savedAccounts, savedActiveId] = await Promise.all([
+        window.codexAPI.getAccounts(),
+        window.codexAPI.getActiveId()
+      ])
+
       if (!mounted) {
         return
       }
@@ -51,15 +52,26 @@ export function useAccounts(lang: Lang) {
 
   useEffect(() => {
     if (isLoaded) {
-      void ipcRenderer.invoke('set-accounts', accounts)
+      void window.codexAPI.setAccounts(accounts)
     }
   }, [accounts, isLoaded])
 
   useEffect(() => {
     if (isLoaded) {
-      void ipcRenderer.invoke('set-active-id', activeId)
+      void window.codexAPI.setActiveId(activeId)
     }
   }, [activeId, isLoaded])
+
+  useEffect(() => {
+    if (!isLoaded || !activeId) {
+      return
+    }
+
+    // 持久化数据与列表变更不同步时，主动回退到一个真实存在的账号。
+    if (!accounts.some((account) => account.id === activeId)) {
+      setActiveId(accounts[0]?.id ?? null)
+    }
+  }, [accounts, activeId, isLoaded])
 
   /**
    * 刷新单个账户并回填最新状态。
@@ -115,7 +127,7 @@ export function useAccounts(lang: Lang) {
   }, [lang])
 
   useEffect(() => {
-    const handleOAuthSuccess = async (_event: any, tokenData: any) => {
+    const handleOAuthSuccess = async (tokenData: OAuthTokenPayload): Promise<void> => {
       if (!tokenData || !tokenData.id_token) return
 
       try {
@@ -138,6 +150,8 @@ export function useAccounts(lang: Lang) {
         }
 
         const updatedAccount = await refreshOne(newAccount)
+        const existingAccount = accounts.find((account) => account.accountId === newAccount.accountId)
+        const resolvedActiveId = existingAccount?.id ?? newAccount.id
 
         setAccounts(prev => {
           const exists = prev.find(a => a.accountId === newAccount.accountId)
@@ -147,18 +161,17 @@ export function useAccounts(lang: Lang) {
           return [updatedAccount, ...prev]
         })
 
-        setActiveId(prev => prev || newAccount.id)
+        setActiveId(prev => prev || resolvedActiveId)
 
       } catch (err) {
         console.error('Failed to handle oauth success:', err)
       }
     }
 
-    ipcRenderer.on('oauth-success', handleOAuthSuccess)
-    return () => {
-      ipcRenderer.removeListener('oauth-success', handleOAuthSuccess)
-    }
-  }, [refreshOne])
+    return window.codexAPI.onOAuthSuccess((payload) => {
+      void handleOAuthSuccess(payload)
+    })
+  }, [accounts, refreshOne])
 
   /**
    * 外部调用：全量刷新。
@@ -169,10 +182,46 @@ export function useAccounts(lang: Lang) {
     }
 
     setIsRefreshing(true)
-    const updated = await Promise.all(accounts.map(refreshOne))
-    setAccounts(updated)
-    setIsRefreshing(false)
+
+    try {
+      const snapshot = accounts
+      const updated = await Promise.all(snapshot.map(refreshOne))
+      const updatedMap = new Map(updated.map((account) => [account.id, account]))
+
+      // 只回填当前仍存在的账号，避免删除操作被并发刷新“写回来”。
+      setAccounts((previous) => previous.map((item) => updatedMap.get(item.id) ?? item))
+    } finally {
+      setIsRefreshing(false)
+    }
   }, [accounts, isRefreshing, refreshOne])
+
+  useEffect(() => {
+    if (!isLoaded || !accounts.length) {
+      return
+    }
+
+    /**
+     * 菜单栏应用常驻后台时，定时同步额度，确保耗尽后能及时触发自动切换判断。
+     */
+    const intervalId = window.setInterval(() => {
+      void refreshAll()
+    }, refreshIntervalMinutes * 60 * 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [accounts.length, isLoaded, refreshAll, refreshIntervalMinutes])
+
+  useEffect(() => {
+    /**
+     * 主进程要求立即同步时，复用同一套全量刷新逻辑。
+     */
+    const handleExternalRefresh = (): void => {
+      void refreshAll()
+    }
+
+    return window.codexAPI.onRefreshAccounts(handleExternalRefresh)
+  }, [refreshAll])
 
   /**
    * 外部调用：单点刷新。

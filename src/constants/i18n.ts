@@ -1,4 +1,4 @@
-import type { AccountFilter, AccountStatus, Lang } from '../types'
+import type { AccountFilter, AccountStatus, AutoSwitchCause, Lang, RefreshIntervalMinutes } from '../types'
 
 /**
  * 界面国际化文案结构。
@@ -34,6 +34,17 @@ export interface AppLocaleText {
     language: string
     showAll: string
   }
+  oauth: {
+    title: string
+    inProgress: string
+    unavailable: string
+    exchangeFailed: string
+    timeout: string
+  }
+  settings: {
+    refreshInterval: string
+    refreshIntervalOption: (value: RefreshIntervalMinutes) => string
+  }
   usage: {
     shortWindow: string
     longWindow: string
@@ -48,10 +59,13 @@ export interface AppLocaleText {
   status: Record<AccountStatus, string>
   statusDescription: Record<AccountStatus, string>
   autoSwitch: {
+    reasonLabel: (cause: AutoSwitchCause) => string
     confirmTitle: string
-    confirmDescription: (current: string, next: string) => string
+    confirmDescription: (current: string, next: string, reason: string) => string
+    switchedTitle: string
+    switchedDescription: (next: string) => string
     noAvailableTitle: string
-    noAvailableDescription: (current: string) => string
+    noAvailableDescription: (current: string, reason: string) => string
     currentAccount: string
     nextAccount: string
     rememberChoice: string
@@ -100,6 +114,17 @@ export const translations = {
       language: 'Language',
       showAll: 'Show all'
     },
+    oauth: {
+      title: 'Sign-in issue',
+      inProgress: 'A sign-in flow is already in progress. Finish it in the browser first.',
+      unavailable: 'The local callback port is unavailable. Close any duplicate app instance and try again.',
+      exchangeFailed: 'The authorization succeeded, but exchanging tokens failed. Please try again.',
+      timeout: 'The sign-in flow timed out. Please try again from the app.'
+    },
+    settings: {
+      refreshInterval: 'Auto refresh',
+      refreshIntervalOption: (value: RefreshIntervalMinutes) => `${value} min`
+    },
     usage: {
       shortWindow: '5-hour window',
       longWindow: '7-day window',
@@ -126,10 +151,19 @@ export const translations = {
       expired: 'Refresh the session before trying to switch again.'
     },
     autoSwitch: {
-      confirmTitle: 'Current 5-hour quota is exhausted',
-      confirmDescription: (current: string, next: string) => `${current} can no longer be used in this 5-hour window. Switch to ${next} now?`,
+      reasonLabel: (cause: AutoSwitchCause) => {
+        if (cause === 'both') {
+          return '5-hour and 7-day quota'
+        }
+
+        return cause === '7d' ? '7-day quota' : '5-hour quota'
+      },
+      confirmTitle: 'Current account quota is exhausted',
+      confirmDescription: (current: string, next: string, reason: string) => `${current} can no longer be used because its ${reason} is exhausted. Switch to ${next} now?`,
+      switchedTitle: 'Switched account',
+      switchedDescription: (next: string) => `CodexManager has switched to ${next}.`,
       noAvailableTitle: 'No available account to switch',
-      noAvailableDescription: (current: string) => `${current} has exhausted its 5-hour quota, and every added account is currently unavailable. Please wait for reset or add another account.`,
+      noAvailableDescription: (current: string, reason: string) => `${current} has exhausted its ${reason}, and every added account is currently unavailable. Please wait for reset or add another account.`,
       currentAccount: 'Current account',
       nextAccount: 'Suggested account',
       rememberChoice: 'Do not ask again next time',
@@ -173,6 +207,17 @@ export const translations = {
       language: '语言',
       showAll: '查看全部'
     },
+    oauth: {
+      title: '登录异常',
+      inProgress: '当前已有一个登录流程正在进行，请先在浏览器中完成它。',
+      unavailable: '本地回调端口不可用，请关闭重复实例后再试一次。',
+      exchangeFailed: '浏览器授权已经成功，但换取令牌失败了，请重试。',
+      timeout: '登录流程已超时，请回到应用里重新发起登录。'
+    },
+    settings: {
+      refreshInterval: '自动刷新',
+      refreshIntervalOption: (value: RefreshIntervalMinutes) => `${value} 分钟`
+    },
     usage: {
       shortWindow: '5 小时窗口',
       longWindow: '7 天窗口',
@@ -199,10 +244,19 @@ export const translations = {
       expired: '需要先刷新会话后再尝试切换。'
     },
     autoSwitch: {
-      confirmTitle: '当前账号 5 小时额度已用尽',
-      confirmDescription: (current: string, next: string) => `${current} 当前 5 小时额度已耗尽，是否立即切换到可继续使用的账号 ${next}？`,
+      reasonLabel: (cause: AutoSwitchCause) => {
+        if (cause === 'both') {
+          return '5 小时和 7 天额度'
+        }
+
+        return cause === '7d' ? '7 天额度' : '5 小时额度'
+      },
+      confirmTitle: '当前账号额度已用尽',
+      confirmDescription: (current: string, next: string, reason: string) => `${current} 当前 ${reason}已耗尽，是否立即切换到可继续使用的账号 ${next}？`,
+      switchedTitle: '已切换账号',
+      switchedDescription: (next: string) => `CodexManager 已切换到 ${next}。`,
       noAvailableTitle: '没有可切换的可用账号',
-      noAvailableDescription: (current: string) => `${current} 当前 5 小时额度已耗尽，而且已添加的账号目前都不可继续使用。请等待额度重置，或添加新的账号。`,
+      noAvailableDescription: (current: string, reason: string) => `${current} 当前 ${reason}已耗尽，而且已添加的账号目前都不可继续使用。请等待额度重置，或添加新的账号。`,
       currentAccount: '当前账号',
       nextAccount: '建议切换',
       rememberChoice: '下次不再提醒',

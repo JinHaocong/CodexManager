@@ -11,6 +11,26 @@ import { APP_CONFIG } from './constants'
 export class OAuthService {
   private verifier: string = ''
   private state: string = ''
+  private server: http.Server | null = null
+  private timeoutId: NodeJS.Timeout | null = null
+
+  /**
+   * 清理本轮 OAuth 上下文，避免下次登录复用旧状态。
+   */
+  private cleanupFlow() {
+    this.verifier = ''
+    this.state = ''
+
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId)
+      this.timeoutId = null
+    }
+
+    if (this.server) {
+      this.server.close()
+      this.server = null
+    }
+  }
 
   /**
    * 生成 PKCE 校验码。
@@ -31,6 +51,11 @@ export class OAuthService {
    * @param sender 用于把授权结果回传给渲染进程。
    */
   public start(sender: WebContents) {
+    if (this.server) {
+      sender.send('oauth-error', { code: 'in-progress' })
+      return
+    }
+
     const challenge = this.generatePKCE()
     this.state = crypto.randomBytes(16).toString('hex')
 
@@ -44,7 +69,8 @@ export class OAuthService {
         // `state` 校验失败时立即终止，避免串号或伪造回调污染当前登录流程。
         if (returnedState !== this.state) {
           res.end('State mismatch')
-          return server.close()
+          this.cleanupFlow()
+          return
         }
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
@@ -64,26 +90,44 @@ export class OAuthService {
           
           sender.send('oauth-success', tokenRes.data)
         } catch (err: any) {
+          sender.send('oauth-error', { code: 'token-exchange-failed' })
           console.error('Token swap error:', err.message)
         }
-        server.close()
-      }
-    }).listen(APP_CONFIG.OAUTH_PORT)
 
-    // 使用系统浏览器完成登录，避免在应用内维护额外的登录容器。
-    const authUrl = `https://auth.openai.com/oauth/authorize?` + querystring.stringify({
-      response_type: 'code',
-      client_id: APP_CONFIG.CLIENT_ID,
-      redirect_uri: APP_CONFIG.REDIRECT_URI,
-      scope: APP_CONFIG.SCOPE,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      id_token_add_organizations: 'true',
-      codex_cli_simplified_flow: 'true',
-      state: this.state,
-      originator: 'Codex Desktop'
+        this.cleanupFlow()
+      }
     })
-    
-    shell.openExternal(authUrl)
+
+    this.server = server
+    this.timeoutId = setTimeout(() => {
+      sender.send('oauth-error', { code: 'timeout' })
+      this.cleanupFlow()
+    }, 5 * 60 * 1000)
+
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      sender.send('oauth-error', { code: 'listen-failed', message: error.message })
+      this.cleanupFlow()
+    })
+
+    server.listen(APP_CONFIG.OAUTH_PORT, () => {
+      // 使用系统浏览器完成登录，避免在应用内维护额外的登录容器。
+      const authUrl = `https://auth.openai.com/oauth/authorize?` + querystring.stringify({
+        response_type: 'code',
+        client_id: APP_CONFIG.CLIENT_ID,
+        redirect_uri: APP_CONFIG.REDIRECT_URI,
+        scope: APP_CONFIG.SCOPE,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        id_token_add_organizations: 'true',
+        codex_cli_simplified_flow: 'true',
+        state: this.state,
+        originator: 'Codex Desktop'
+      })
+      
+      void shell.openExternal(authUrl).catch((error) => {
+        sender.send('oauth-error', { code: 'listen-failed', message: error.message })
+        this.cleanupFlow()
+      })
+    })
   }
 }

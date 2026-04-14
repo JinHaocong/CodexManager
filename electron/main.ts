@@ -21,8 +21,9 @@ async function createWindow() {
     alwaysOnTop: true,
     icon: getAssetPath('icon.png'),
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
     }
   })
 
@@ -49,7 +50,10 @@ app.whenReady().then(() => {
     app.dock.hide()
   }
 
-  registerIpcHandlers()
+  registerIpcHandlers({
+    getMainWindow: () => win,
+    showWindow: () => trayManager?.showWindow()
+  })
   createWindow()
 })
 

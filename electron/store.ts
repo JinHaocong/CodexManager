@@ -8,6 +8,7 @@ interface StoreSchema {
   activeId: string | null
   lang: 'EN' | 'ZH'
   skipAutoSwitchConfirm: boolean
+  refreshIntervalMinutes: number
 }
 
 /**
@@ -18,7 +19,8 @@ const store = new Store<StoreSchema>({
     accounts: [],
     activeId: null,
     lang: 'EN',
-    skipAutoSwitchConfirm: false
+    skipAutoSwitchConfirm: false,
+    refreshIntervalMinutes: 3
   }
 })
 

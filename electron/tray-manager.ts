@@ -1,6 +1,8 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron'
 import { getAssetPath } from './constants'
 
+const REFRESH_ACCOUNTS_EVENT = 'refresh-accounts'
+
 /**
  * 托盘管理类，负责托盘图标、菜单与弹层显隐。
  */
@@ -37,7 +39,7 @@ export class TrayManager {
   /**
    * 将窗口对齐到托盘图标下方并显示。
    */
-  private showWindow() {
+  public showWindow() {
     if (!this.tray) return
 
     const trayBounds = this.tray.getBounds()
@@ -50,6 +52,25 @@ export class TrayManager {
     this.window.setPosition(x, y, false)
     this.window.show()
     this.window.focus()
+    this.requestAccountsRefresh()
+  }
+
+  /**
+   * 展开主界面时主动同步额度，减少看到旧状态的时间窗口。
+   */
+  private requestAccountsRefresh() {
+    const sendRefresh = () => {
+      if (!this.window.isDestroyed()) {
+        this.window.webContents.send(REFRESH_ACCOUNTS_EVENT)
+      }
+    }
+
+    if (this.window.webContents.isLoading()) {
+      this.window.webContents.once('did-finish-load', sendRefresh)
+      return
+    }
+
+    sendRefresh()
   }
 
   /**

@@ -1,4 +1,4 @@
-import type { Account, AccountFilter, AccountStatus, Lang } from '../types'
+import type { Account, AccountFilter, AccountStatus, AutoSwitchCause, Lang } from '../types'
 
 export interface AccountGroup {
   email: string
@@ -87,18 +87,33 @@ export function getUsageTone(value: number): 'healthy' | 'warning' | 'danger' {
 }
 
 /**
- * 判断当前账号是否已经耗尽 5 小时额度。
+ * 判断当前账号是由哪个额度窗口触发自动切换。
  */
-export function isPrimaryWindowExhausted(account: Account): boolean {
-  return clampUsage(account.usage_5h) >= 100
+export function getAutoSwitchCause(account: Account): AutoSwitchCause | null {
+  const isShortWindowExhausted = clampUsage(account.usage_5h) >= 100
+  const isLongWindowExhausted = clampUsage(account.usage_week) >= 100
+
+  if (isShortWindowExhausted && isLongWindowExhausted) {
+    return 'both'
+  }
+
+  if (isShortWindowExhausted) {
+    return '5h'
+  }
+
+  if (isLongWindowExhausted) {
+    return '7d'
+  }
+
+  return null
 }
 
 /**
  * 判断账号当前是否仍可继续承接切换。
  */
 export function canAutoSwitchTo(account: Account): boolean {
-  return account.usage_5h < 100
-    && account.usage_week < 100
+  return clampUsage(account.usage_5h) < 100
+    && clampUsage(account.usage_week) < 100
     && account.status !== 'disabled'
     && account.status !== 'expired'
 }
@@ -128,13 +143,13 @@ export function findNextAvailableAccount(accounts: Account[], activeId: string |
 }
 
 /**
- * 生成自动切换判定签名，避免同一轮状态重复弹窗。
+ * 生成自动切换判定签名，避免同一状态因为刷新时间变化而重复提醒。
  */
 export function getAutoSwitchSignature(accounts: Account[], activeId: string | null): string {
   return accounts
     .map((account) => {
       const isActive = account.id === activeId ? 'active' : 'idle'
-      return `${account.id}:${isActive}:${account.usage_5h}:${account.usage_week}:${account.status}:${account.last_update}`
+      return `${account.id}:${isActive}:${clampUsage(account.usage_5h)}:${clampUsage(account.usage_week)}:${account.status}`
     })
     .join('|')
 }

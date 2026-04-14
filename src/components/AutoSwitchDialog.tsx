@@ -4,6 +4,7 @@ import type { AutoSwitchDialogMode } from '../types'
 interface Props {
   mode: AutoSwitchDialogMode
   currentLabel: string
+  reasonLabel: string
   nextLabel?: string
   rememberChoice: boolean
   onRememberChoiceChange: (value: boolean) => void
@@ -21,6 +22,7 @@ interface Props {
 export function AutoSwitchDialog({
   mode,
   currentLabel,
+  reasonLabel,
   nextLabel,
   rememberChoice,
   onRememberChoiceChange,
@@ -44,8 +46,8 @@ export function AutoSwitchDialog({
           </h2>
           <p className="modal-description">
             {isConfirmMode && nextLabel
-              ? t.autoSwitch.confirmDescription(currentLabel, nextLabel)
-              : t.autoSwitch.noAvailableDescription(currentLabel)}
+              ? t.autoSwitch.confirmDescription(currentLabel, nextLabel, reasonLabel)
+              : t.autoSwitch.noAvailableDescription(currentLabel, reasonLabel)}
           </p>
         </div>
 
