@@ -294,6 +294,8 @@ function App() {
                     translations={t}
                     // 周额度通常比短窗口更能说明恢复时间，缺失时再回退到 5 小时窗口。
                     resetText={formatResetTime(account.reset_week || account.reset_5h, lang)}
+                    reset5hText={formatResetTime(account.reset_5h, lang)}
+                    resetWeekText={formatResetTime(account.reset_week, lang)}
                     onSwitch={handleSwitchAccount}
                     onRefresh={handleRefreshOne}
                     onDelete={handleDeleteAccount}

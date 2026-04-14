@@ -13,6 +13,8 @@ interface Props {
   onRefresh: (acc: Account) => void
   onDelete: (acc: Account) => void
   resetText: string
+  reset5hText?: string
+  resetWeekText?: string
   translations: AppLocaleText
 }
 
@@ -28,6 +30,8 @@ export function AccountCard({
   onRefresh,
   onDelete,
   resetText,
+  reset5hText,
+  resetWeekText,
   translations: t
 }: Props) {
   const statusTone = getStatusTone(account.status)
@@ -40,8 +44,8 @@ export function AccountCard({
     : t.statusDescription[account.status]
 
   const usageMetrics = [
-    { label: t.usage.shortWindow, value: clampUsage(account.usage_5h) },
-    { label: t.usage.longWindow, value: clampUsage(account.usage_week) }
+    { label: t.usage.shortWindow, value: clampUsage(account.usage_5h), resetText: reset5hText },
+    { label: t.usage.longWindow, value: clampUsage(account.usage_week), resetText: resetWeekText }
   ]
 
   return (
@@ -96,7 +100,12 @@ export function AccountCard({
           return (
             <div className="usage-card" key={metric.label}>
               <div className="usage-card-top">
-                <span className="usage-label">{metric.label}</span>
+                <span className="usage-label" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {metric.label}
+                  {metric.resetText && (
+                    <span style={{ textTransform: 'none', opacity: 0.85 }}>({metric.resetText})</span>
+                  )}
+                </span>
                 <strong className={`usage-value usage-value--${usageTone}`}>{metric.value}%</strong>
               </div>
               <div className="progress-track">
