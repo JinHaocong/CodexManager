@@ -143,18 +143,6 @@ export function findNextAvailableAccount(accounts: Account[], activeId: string |
 }
 
 /**
- * 生成自动切换判定签名，避免同一状态因为刷新时间变化而重复提醒。
- */
-export function getAutoSwitchSignature(accounts: Account[], activeId: string | null): string {
-  return accounts
-    .map((account) => {
-      const isActive = account.id === activeId ? 'active' : 'idle'
-      return `${account.id}:${isActive}:${clampUsage(account.usage_5h)}:${clampUsage(account.usage_week)}:${account.status}`
-    })
-    .join('|')
-}
-
-/**
  * 根据套餐名称返回徽章色调。
  */
 export function getPlanTone(planType: string): 'indigo' | 'cyan' | 'amber' | 'violet' | 'neutral' {

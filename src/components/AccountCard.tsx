@@ -169,22 +169,10 @@ export function AccountCard({
           return (
             <div className="usage-card" key={metric.label}>
               <div className="usage-card-top">
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                  }}
-                >
+                <div className="usage-label-group">
                   <span className="usage-label">{metric.label}</span>
                   {metric.resetText && (
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--text-soft)",
-                        textTransform: "none",
-                      }}
-                    >
+                    <span className="usage-reset-text">
                       {metric.resetText}
                     </span>
                   )}

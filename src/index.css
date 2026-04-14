@@ -699,6 +699,18 @@ img {
   gap: 8px;
 }
 
+.usage-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-reset-text {
+  font-size: 10px;
+  color: var(--text-soft);
+  text-transform: none;
+}
+
 .usage-label {
   color: var(--text-muted);
   font-size: 10.5px;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { getUsage, getAccountsCheck } from '../services/api'
 import type { Account, Lang, OAuthTokenPayload, RefreshIntervalMinutes } from '../types'
@@ -17,6 +17,11 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
   const lastUpdateAt = useMemo(() => getLatestUpdateAt(accounts), [accounts])
+
+  /**
+   * 记录最近一次刷新完成的时间戳，用于防止外部触发与定时器并发执行。
+   */
+  const lastRefreshTimeRef = useRef<number>(0)
 
   useEffect(() => {
     let mounted = true
@@ -74,32 +79,65 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   }, [accounts, activeId, isLoaded])
 
   /**
+   * 尝试用 refresh_token 换取新的 access_token。
+   * 成功时返回含新 token 的账号对象，失败时返回 null。
+   */
+  const tryRefreshToken = useCallback(async (account: Account): Promise<Account | null> => {
+    try {
+      const result = await window.codexAPI.refreshToken(account)
+      if (!result.success || !result.data) {
+        return null
+      }
+
+      const { access_token, refresh_token, id_token } = result.data as OAuthTokenPayload
+      return { ...account, access_token, refresh_token, id_token }
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
    * 刷新单个账户并回填最新状态。
+   * 遇到 401 时先尝试 token 刷新，刷新成功则重试，失败才标记 expired。
    */
   const refreshOne = useCallback(async (account: Account): Promise<Account> => {
     try {
-      const usageRes = await getUsage(account, lang)
+      let workingAccount = account
+      let usageRes = await getUsage(workingAccount, lang)
+
+      // 401：先尝试自动刷新 token，避免用户被迫重新登录。
+      if (!usageRes.success && usageRes.status === 401) {
+        const refreshed = await tryRefreshToken(workingAccount)
+        if (refreshed) {
+          workingAccount = refreshed
+          usageRes = await getUsage(workingAccount, lang)
+        }
+      }
+
       if (!usageRes.success) {
-        if (usageRes.status === 401) return { ...account, status: 'expired' }
-        if (usageRes.status === 402 || usageRes.status === 403) return { ...account, status: 'disabled' }
+        if (usageRes.status === 401) return { ...workingAccount, status: 'expired' }
+        if (usageRes.status === 402 || usageRes.status === 403) return { ...workingAccount, status: 'disabled' }
         return account
       }
 
       if (!usageRes.data) {
-        return account
+        return workingAccount
       }
 
       const { rate_limit, plan_type } = usageRes.data
-      const orgRes = await getAccountsCheck(account, lang)
 
-      let orgName = account.orgName
-      if (orgRes.success && orgRes.data?.accounts) {
-        const accountsData = orgRes.data.accounts
-        const orgInfo = accountsData[account.accountId]
-        const firstOrg = Object.values(accountsData)[0]
+      // orgName 已有值时跳过组织接口，减少每次刷新的请求数量。
+      let orgName = workingAccount.orgName
+      if (!orgName) {
+        const orgRes = await getAccountsCheck(workingAccount, lang)
+        if (orgRes.success && orgRes.data?.accounts) {
+          const accountsData = orgRes.data.accounts
+          const orgInfo = accountsData[workingAccount.accountId]
+          const firstOrg = Object.values(accountsData)[0]
 
-        // 主组织名称未返回时，回退到列表中的第一个组织，尽量保证界面有可读名称。
-        orgName = orgInfo?.account?.name || firstOrg?.account?.name || orgName
+          // 主组织名称未返回时，回退到列表中的第一个组织，尽量保证界面有可读名称。
+          orgName = orgInfo?.account?.name || firstOrg?.account?.name || ''
+        }
       }
 
       const u5h = rate_limit.primary_window?.used_percent || 0
@@ -111,7 +149,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       else if (u5h >= 80 || u7d >= 80) status = 'warning'
 
       return {
-        ...account,
+        ...workingAccount,
         orgName,
         planType: plan_type || 'free',
         usage_5h: u5h,
@@ -124,7 +162,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     } catch {
       return account
     }
-  }, [lang])
+  }, [lang, tryRefreshToken])
 
   useEffect(() => {
     const handleOAuthSuccess = async (tokenData: OAuthTokenPayload): Promise<void> => {
@@ -181,6 +219,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       return
     }
 
+    lastRefreshTimeRef.current = Date.now()
     setIsRefreshing(true)
 
     try {
@@ -188,7 +227,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       const updated = await Promise.all(snapshot.map(refreshOne))
       const updatedMap = new Map(updated.map((account) => [account.id, account]))
 
-      // 只回填当前仍存在的账号，避免删除操作被并发刷新“写回来”。
+      // 只回填当前仍存在的账号，避免删除操作被并发刷新"写回来"。
       setAccounts((previous) => previous.map((item) => updatedMap.get(item.id) ?? item))
     } finally {
       setIsRefreshing(false)
@@ -215,8 +254,13 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   useEffect(() => {
     /**
      * 主进程要求立即同步时，复用同一套全量刷新逻辑。
+     * 距上次刷新不足 10 秒时跳过，避免与定时器或打开面板时的刷新并发执行。
      */
     const handleExternalRefresh = (): void => {
+      const now = Date.now()
+      if (now - lastRefreshTimeRef.current < 10_000) {
+        return
+      }
       void refreshAll()
     }
 

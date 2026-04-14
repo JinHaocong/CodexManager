@@ -9,23 +9,20 @@ import { Header } from "./components/Header";
 import { translations } from "./constants/i18n";
 
 import { useAccounts } from "./hooks/useAccounts";
+import { useAutoSwitch } from "./hooks/useAutoSwitch";
 
 import { REFRESH_INTERVAL_OPTIONS } from "./types";
 import type {
   Account,
   AccountFilter,
-  AutoSwitchDialogMode,
   Lang,
   OAuthErrorPayload,
   RefreshIntervalMinutes,
   SystemNotificationIntent,
 } from "./types";
 import {
-  findNextAvailableAccount,
   formatResetTime,
   formatTimestamp,
-  getAutoSwitchCause,
-  getAutoSwitchSignature,
   getAttentionCount,
   getFilteredAccounts,
   getReadyCount,
@@ -44,13 +41,6 @@ function App() {
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [skipAutoSwitchConfirm, setSkipAutoSwitchConfirm] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
-  const [handledAutoSwitchSignature, setHandledAutoSwitchSignature] = useState<
-    string | null
-  >(null);
-  const [rememberAutoSwitchChoice, setRememberAutoSwitchChoice] =
-    useState(false);
-  const [autoSwitchDialogMode, setAutoSwitchDialogMode] =
-    useState<AutoSwitchDialogMode | null>(null);
 
   const {
     accounts,
@@ -81,7 +71,6 @@ function App() {
       ) {
         return value as RefreshIntervalMinutes;
       }
-
       return 3;
     };
 
@@ -97,14 +86,9 @@ function App() {
         window.codexAPI.getRefreshIntervalMinutes(),
       ]);
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
-      if (savedLang) {
-        setLang(savedLang);
-      }
-
+      if (savedLang) setLang(savedLang);
       setSkipAutoSwitchConfirm(Boolean(savedSkipAutoSwitchConfirm));
       setRefreshIntervalMinutes(
         normalizeRefreshInterval(savedRefreshIntervalMinutes),
@@ -149,23 +133,6 @@ function App() {
   const activeAccount = useMemo(() => {
     return accounts.find((account) => account.id === activeId) || null;
   }, [accounts, activeId]);
-  const autoSwitchCause = useMemo(() => {
-    return activeAccount ? getAutoSwitchCause(activeAccount) : null;
-  }, [activeAccount]);
-  const nextAvailableAccount = useMemo(() => {
-    return findNextAvailableAccount(accounts, activeId);
-  }, [accounts, activeId]);
-  /**
-   * 当前账号一旦耗尽任一自动切换窗口额度，就基于全部账户状态生成唯一签名。
-   * 这样同一轮刷新里不会因为重复渲染而反复弹窗。
-   */
-  const autoSwitchSignature = useMemo(() => {
-    if (!activeAccount || !autoSwitchCause) {
-      return null;
-    }
-
-    return `${activeAccount.id}:${getAutoSwitchSignature(accounts, activeId)}`;
-  }, [accounts, activeAccount, activeId, autoSwitchCause]);
 
   const readyCount = useMemo(() => getReadyCount(accounts), [accounts]);
   const attentionCount = useMemo(() => getAttentionCount(accounts), [accounts]);
@@ -179,19 +146,15 @@ function App() {
    */
   const handleSwitchAccount = useCallback(
     async (account: Account): Promise<boolean> => {
-      if (switchingId) {
-        return false;
-      }
+      if (switchingId) return false;
 
       setSwitchingId(account.id);
-
       try {
         const result = await window.codexAPI.switchAccount(account);
         if (result?.success) {
           setActiveId(account.id);
           return true;
         }
-
         return false;
       } finally {
         setSwitchingId(null);
@@ -205,9 +168,7 @@ function App() {
    */
   const handleDeleteAccount = useCallback(
     (account: Account): void => {
-      if (!window.confirm(t.removeConfirm)) {
-        return;
-      }
+      if (!window.confirm(t.removeConfirm)) return;
 
       const nextAccounts = accounts.filter((item) => item.id !== account.id);
       setAccounts(nextAccounts);
@@ -255,37 +216,11 @@ function App() {
    */
   const getAccountDisplayName = useCallback(
     (account: Account | null): string => {
-      if (!account) {
-        return t.personalWorkspace;
-      }
-
+      if (!account) return t.personalWorkspace;
       const orgName = account.orgName || t.personalWorkspace;
       return `${account.email} (${orgName})`;
     },
     [t.personalWorkspace],
-  );
-
-  /**
-   * 自动切换成功后给出系统通知，让后台切换结果对用户可感知。
-   */
-  const notifyAutoSwitchSuccess = useCallback(
-    (account: Account): void => {
-      if (!canUseSystemNotifications()) {
-        return;
-      }
-
-      showSystemNotification(
-        t.autoSwitch.switchedTitle,
-        t.autoSwitch.switchedDescription(getAccountDisplayName(account)),
-        "show-window",
-      );
-    },
-    [
-      canUseSystemNotifications,
-      getAccountDisplayName,
-      showSystemNotification,
-      t.autoSwitch,
-    ],
   );
 
   useEffect(() => {
@@ -294,7 +229,6 @@ function App() {
      */
     const handleOAuthError = (payload?: OAuthErrorPayload): void => {
       const code = payload?.code;
-
       const message =
         code === "in-progress"
           ? t.oauth.inProgress
@@ -308,160 +242,34 @@ function App() {
         showSystemNotification(t.oauth.title, message, "show-window");
         return;
       }
-
       window.alert(message);
     };
 
     return window.codexAPI.onOAuthError(handleOAuthError);
   }, [canUseSystemNotifications, showSystemNotification, t.oauth]);
 
-  /**
-   * 当前账号任一关键额度窗口耗尽后，根据偏好决定是否自动切换或提示用户。
-   */
-  useEffect(() => {
-    if (
-      !preferencesReady ||
-      !activeAccount ||
-      !autoSwitchCause ||
-      switchingId ||
-      !autoSwitchSignature
-    ) {
-      return;
-    }
-
-    if (handledAutoSwitchSignature === autoSwitchSignature) {
-      return;
-    }
-
-    setHandledAutoSwitchSignature(autoSwitchSignature);
-
-    if (nextAvailableAccount) {
-      // 用户勾选“下次不再提醒”后，直接切换到当前最优候选账号。
-      if (skipAutoSwitchConfirm) {
-        void (async () => {
-          const switched = await handleSwitchAccount(nextAvailableAccount);
-          if (switched) {
-            notifyAutoSwitchSuccess(nextAvailableAccount);
-          }
-        })();
-        return;
-      }
-
-      setRememberAutoSwitchChoice(false);
-      if (!canUseSystemNotifications()) {
-        setAutoSwitchDialogMode("confirm-switch");
-        return;
-      }
-
-      setAutoSwitchDialogMode(null);
-      showSystemNotification(
-        t.autoSwitch.confirmTitle,
-        t.autoSwitch.confirmDescription(
-          getAccountDisplayName(activeAccount),
-          getAccountDisplayName(nextAvailableAccount),
-          t.autoSwitch.reasonLabel(autoSwitchCause),
-        ),
-        "open-auto-switch-dialog",
-      );
-      return;
-    }
-
-    setRememberAutoSwitchChoice(false);
-    if (!canUseSystemNotifications()) {
-      setAutoSwitchDialogMode("no-available-account");
-      return;
-    }
-
-    setAutoSwitchDialogMode(null);
-    showSystemNotification(
-      t.autoSwitch.noAvailableTitle,
-      t.autoSwitch.noAvailableDescription(
-        getAccountDisplayName(activeAccount),
-        t.autoSwitch.reasonLabel(autoSwitchCause),
-      ),
-      "show-window",
-    );
-  }, [
-    activeAccount,
+  // 自动切换逻辑全部委托给 useAutoSwitch，App 只关注数据和 UI 渲染。
+  const {
     autoSwitchCause,
-    canUseSystemNotifications,
-    getAccountDisplayName,
-    handleSwitchAccount,
-    handledAutoSwitchSignature,
     nextAvailableAccount,
-    notifyAutoSwitchSuccess,
-    preferencesReady,
-    showSystemNotification,
-    skipAutoSwitchConfirm,
-    switchingId,
-    t,
-    autoSwitchSignature,
-  ]);
-
-  useEffect(() => {
-    if (!autoSwitchSignature) {
-      setHandledAutoSwitchSignature(null);
-      setAutoSwitchDialogMode(null);
-      setRememberAutoSwitchChoice(false);
-    }
-  }, [autoSwitchSignature]);
-
-  useEffect(() => {
-    /**
-     * 点击系统通知后再展开应用内确认，避免在后台工作时被面板直接打断。
-     */
-    const handleOpenAutoSwitchDialog = (): void => {
-      if (
-        !activeAccount ||
-        !autoSwitchCause ||
-        !nextAvailableAccount ||
-        !autoSwitchSignature
-      ) {
-        return;
-      }
-
-      setRememberAutoSwitchChoice(false);
-      setAutoSwitchDialogMode("confirm-switch");
-    };
-
-    return window.codexAPI.onOpenAutoSwitchDialog(handleOpenAutoSwitchDialog);
-  }, [
-    activeAccount,
-    autoSwitchCause,
-    autoSwitchSignature,
-    nextAvailableAccount,
-  ]);
-
-  /**
-   * 确认自动切换时按需记住用户偏好，再执行账号切换。
-   */
-  const handleConfirmAutoSwitch = useCallback(async (): Promise<void> => {
-    if (autoSwitchDialogMode === "confirm-switch" && nextAvailableAccount) {
-      if (rememberAutoSwitchChoice) {
-        setSkipAutoSwitchConfirm(true);
-      }
-
-      setAutoSwitchDialogMode(null);
-      const switched = await handleSwitchAccount(nextAvailableAccount);
-      if (switched) {
-        notifyAutoSwitchSuccess(nextAvailableAccount);
-      }
-      return;
-    }
-
-    setAutoSwitchDialogMode(null);
-  }, [
     autoSwitchDialogMode,
-    handleSwitchAccount,
-    nextAvailableAccount,
-    notifyAutoSwitchSuccess,
     rememberAutoSwitchChoice,
-  ]);
-
-  const handleCloseAutoSwitchDialog = useCallback((): void => {
-    setAutoSwitchDialogMode(null);
-    setRememberAutoSwitchChoice(false);
-  }, []);
+    setRememberAutoSwitchChoice,
+    handleConfirmAutoSwitch,
+    handleCloseAutoSwitchDialog,
+  } = useAutoSwitch({
+    accounts,
+    activeAccount,
+    activeId,
+    preferencesReady,
+    skipAutoSwitchConfirm,
+    setSkipAutoSwitchConfirm,
+    handleSwitchAccount,
+    canUseSystemNotifications,
+    showSystemNotification,
+    getAccountDisplayName,
+    t,
+  });
 
   return (
     <div className="app-shell">

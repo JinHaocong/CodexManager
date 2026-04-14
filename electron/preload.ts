@@ -73,6 +73,7 @@ const api: CodexAPI = {
     return ipcRenderer.invoke('set-refresh-interval-minutes', value) as Promise<void>
   },
   switchAccount: (account: Account) => ipcRenderer.invoke('switch-account', account) as Promise<SwitchAccountResult>,
+  refreshToken: (account: Account) => ipcRenderer.invoke('refresh-token', account) as Promise<ProxyResponse<OAuthTokenPayload>>,
   startOAuth: () => ipcRenderer.send('start-oauth'),
   quitApp: () => ipcRenderer.send('quit-app'),
   showSystemNotification: (payload: SystemNotificationPayload) => ipcRenderer.send('show-system-notification', payload),

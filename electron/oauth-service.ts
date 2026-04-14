@@ -74,7 +74,45 @@ export class OAuthService {
         }
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end('<div style="text-align:center;padding-top:100px;font-family:sans-serif;"><h1>✓ Authorized</h1><p>Return to app.</p></div>')
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Authorized — CodexManager</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #f0eeff 0%, #e8f4fd 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .card {
+      text-align: center; padding: 48px 40px; max-width: 360px; width: 100%;
+      background: rgba(255,255,255,0.88); border-radius: 24px;
+      box-shadow: 0 20px 60px rgba(92,84,133,0.12);
+      backdrop-filter: blur(20px);
+    }
+    .icon {
+      display: inline-grid; place-items: center;
+      width: 64px; height: 64px; border-radius: 20px; margin-bottom: 20px;
+      background: linear-gradient(180deg, #8d80c6 0%, #7568ad 100%);
+      font-size: 28px; color: #fff;
+      box-shadow: 0 8px 24px rgba(115,103,170,0.28);
+    }
+    h1 { font-size: 20px; font-weight: 700; color: #2d2650; margin-bottom: 10px; }
+    p { font-size: 14px; color: #6b7280; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+    <h1>Authorization successful</h1>
+    <p>You can close this window and return to CodexManager.</p>
+  </div>
+</body>
+</html>`)
         
         try {
           // 本地回调只负责拿到授权码，真正的 token 交换仍走 OpenAI OAuth 接口。

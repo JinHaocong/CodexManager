@@ -152,6 +152,7 @@ export interface CodexAPI {
   getRefreshIntervalMinutes: () => Promise<number | undefined>
   setRefreshIntervalMinutes: (value: RefreshIntervalMinutes) => Promise<void>
   switchAccount: (account: Account) => Promise<SwitchAccountResult>
+  refreshToken: (account: Account) => Promise<ProxyResponse<OAuthTokenPayload>>
   startOAuth: () => void
   quitApp: () => void
   showSystemNotification: (payload: SystemNotificationPayload) => void

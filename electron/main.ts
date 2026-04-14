@@ -52,7 +52,8 @@ app.whenReady().then(() => {
 
   registerIpcHandlers({
     getMainWindow: () => win,
-    showWindow: () => trayManager?.showWindow()
+    showWindow: () => trayManager?.showWindow(),
+    updateTrayMenuLang: (lang) => trayManager?.updateMenuLang(lang),
   })
   createWindow()
 })

@@ -8,6 +8,7 @@ const REFRESH_ACCOUNTS_EVENT = 'refresh-accounts'
  */
 export class TrayManager {
   private tray: Tray | null = null
+  private lang: 'EN' | 'ZH' = 'EN'
 
   /**
    * @param window 与托盘交互绑定的主窗口实例。
@@ -24,16 +25,34 @@ export class TrayManager {
     this.tray = new Tray(trayImage)
     this.tray.setToolTip('CodexManager')
 
-    const contextMenu = Menu.buildFromTemplate([
-      { label: 'Open CodexManager', click: () => this.showWindow() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() }
-    ])
-
-    this.tray.on('right-click', () => this.tray?.popUpContextMenu(contextMenu))
+    this.tray.on('right-click', () => this.tray?.popUpContextMenu(this.buildContextMenu()))
     this.tray.on('click', () => {
       this.window.isVisible() ? this.window.hide() : this.showWindow()
     })
+  }
+
+  /**
+   * 根据当前语言构建托盘右键菜单。
+   */
+  private buildContextMenu(): Electron.Menu {
+    const labels = this.lang === 'ZH'
+      ? { open: '打开 CodexManager', quit: '退出' }
+      : { open: 'Open CodexManager', quit: 'Quit' }
+
+    return Menu.buildFromTemplate([
+      { label: labels.open, click: () => this.showWindow() },
+      { type: 'separator' },
+      { label: labels.quit, click: () => app.quit() }
+    ])
+  }
+
+  /**
+   * 更新托盘菜单语言，跟随应用语言设置。
+   *
+   * @param lang 当前界面语言。
+   */
+  public updateMenuLang(lang: 'EN' | 'ZH') {
+    this.lang = lang
   }
 
   /**
