@@ -124,19 +124,6 @@ CodexManager/
 - `electron/` 负责托盘、窗口、IPC、OAuth 和本地存储
 - 上传 GitHub 时不需要提交 `node_modules/`、`dist/`、`dist-electron/`、`release/`
 
-## 上传 GitHub 建议
-
-如果你是第一次把这个项目推到 GitHub，可以在项目根目录执行：
-
-```bash
-git init
-git add .
-git commit -m "feat: initialize CodexManager"
-git branch -M main
-git remote add origin <你的仓库地址>
-git push -u origin main
-```
-
 ## 注意事项
 
 - 当前应用偏向 macOS 菜单栏使用场景
