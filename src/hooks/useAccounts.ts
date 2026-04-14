@@ -114,6 +114,52 @@ export function useAccounts(lang: Lang) {
     }
   }, [lang])
 
+  useEffect(() => {
+    const handleOAuthSuccess = async (_event: any, tokenData: any) => {
+      if (!tokenData || !tokenData.id_token) return
+
+      try {
+        const payloadBase64 = tokenData.id_token.split('.')[1]
+        const payloadJson = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')))
+        
+        const newAccount: Account = {
+          id: crypto.randomUUID(),
+          accountId: payloadJson.sub || 'unknown',
+          email: payloadJson.email || 'Unknown Email',
+          orgName: '',
+          planType: 'free',
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          id_token: tokenData.id_token,
+          usage_5h: 0,
+          usage_week: 0,
+          status: 'normal',
+          last_update: new Date().toISOString()
+        }
+
+        const updatedAccount = await refreshOne(newAccount)
+
+        setAccounts(prev => {
+          const exists = prev.find(a => a.accountId === newAccount.accountId)
+          if (exists) {
+            return prev.map(a => a.accountId === newAccount.accountId ? { ...updatedAccount, id: a.id } : a)
+          }
+          return [updatedAccount, ...prev]
+        })
+
+        setActiveId(prev => prev || newAccount.id)
+
+      } catch (err) {
+        console.error('Failed to handle oauth success:', err)
+      }
+    }
+
+    ipcRenderer.on('oauth-success', handleOAuthSuccess)
+    return () => {
+      ipcRenderer.removeListener('oauth-success', handleOAuthSuccess)
+    }
+  }, [refreshOne])
+
   /**
    * 外部调用：全量刷新。
    */

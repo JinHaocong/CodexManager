@@ -56,7 +56,7 @@ export function registerIpcHandlers() {
       fs.writeFileSync(APP_CONFIG.AUTH_FILE, JSON.stringify(config, null, 2))
 
       // 延迟重启确保写入落盘
-      exec('pkill "Codex"', () => {
+      exec('pkill -x "Codex"', () => {
         setTimeout(() => exec('open /Applications/Codex.app'), 500)
       })
 
