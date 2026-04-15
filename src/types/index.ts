@@ -73,6 +73,16 @@ export interface OAuthTokenPayload {
 }
 
 /**
+ * refresh_token 换取 access_token 时的返回体。
+ * OpenAI 可能只返回新的 access_token，因此其余字段保持可选。
+ */
+export interface RefreshTokenPayload {
+  access_token: string
+  refresh_token?: string
+  id_token?: string
+}
+
+/**
  * OAuth 流程错误信息。
  */
 export interface OAuthErrorPayload {
@@ -152,7 +162,8 @@ export interface CodexAPI {
   getRefreshIntervalMinutes: () => Promise<number | undefined>
   setRefreshIntervalMinutes: (value: RefreshIntervalMinutes) => Promise<void>
   switchAccount: (account: Account) => Promise<SwitchAccountResult>
-  refreshToken: (account: Account) => Promise<ProxyResponse<OAuthTokenPayload>>
+  syncAccountAuth: (account: Account) => Promise<SwitchAccountResult>
+  refreshToken: (account: Account) => Promise<ProxyResponse<RefreshTokenPayload>>
   startOAuth: () => void
   quitApp: () => void
   showSystemNotification: (payload: SystemNotificationPayload) => void

@@ -12,6 +12,9 @@ import {
   getAutoSwitchCause,
 } from '../utils/account-display'
 
+const AUTO_SWITCH_NOTIFICATION_CACHE_KEY = 'codex:auto-switch-notification'
+const AUTO_SWITCH_NOTIFICATION_TTL_MS = 15_000
+
 interface UseAutoSwitchOptions {
   accounts: Account[]
   activeAccount: Account | null
@@ -34,6 +37,60 @@ interface UseAutoSwitchResult {
   setRememberAutoSwitchChoice: (value: boolean) => void
   handleConfirmAutoSwitch: () => Promise<void>
   handleCloseAutoSwitchDialog: () => void
+}
+
+interface AutoSwitchNotificationCache {
+  signature: string
+  timestamp: number
+}
+
+/**
+ * 读取最近一次自动切换通知缓存。
+ */
+function readAutoSwitchNotificationCache(): AutoSwitchNotificationCache | null {
+  try {
+    const raw = window.localStorage.getItem(AUTO_SWITCH_NOTIFICATION_CACHE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    return JSON.parse(raw) as AutoSwitchNotificationCache
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 判断同一条自动切换通知是否刚刚展示过。
+ *
+ * @param signature 当前自动切换事件签名。
+ */
+function shouldSuppressAutoSwitchNotification(signature: string): boolean {
+  const cache = readAutoSwitchNotificationCache()
+  if (!cache || cache.signature !== signature) {
+    return false
+  }
+
+  return Date.now() - cache.timestamp < AUTO_SWITCH_NOTIFICATION_TTL_MS
+}
+
+/**
+ * 记录本次自动切换通知，避免短时间内重复弹同一条系统提醒。
+ *
+ * @param signature 当前自动切换事件签名。
+ */
+function markAutoSwitchNotification(signature: string): void {
+  try {
+    window.localStorage.setItem(
+      AUTO_SWITCH_NOTIFICATION_CACHE_KEY,
+      JSON.stringify({
+        signature,
+        timestamp: Date.now(),
+      } satisfies AutoSwitchNotificationCache),
+    )
+  } catch {
+    // 本地缓存不可用时退化为正常提醒，不阻断主流程。
+  }
 }
 
 /**
@@ -62,8 +119,8 @@ export function useAutoSwitch({
   }, [activeAccount])
 
   const nextAvailableAccount = useMemo(() => {
-    return findNextAvailableAccount(accounts, activeId)
-  }, [accounts, activeId])
+    return findNextAvailableAccount(accounts, activeId, autoSwitchCause)
+  }, [accounts, activeId, autoSwitchCause])
 
   /**
    * 签名只关联「当前激活账号 + 耗尽原因 + 下一候选账号」三个维度。
@@ -128,6 +185,11 @@ export function useAutoSwitch({
         return
       }
 
+      if (shouldSuppressAutoSwitchNotification(autoSwitchSignature)) {
+        return
+      }
+
+      markAutoSwitchNotification(autoSwitchSignature)
       setAutoSwitchDialogMode(null)
       showSystemNotification(
         t.autoSwitch.confirmTitle,
@@ -147,6 +209,11 @@ export function useAutoSwitch({
       return
     }
 
+    if (shouldSuppressAutoSwitchNotification(autoSwitchSignature)) {
+      return
+    }
+
+    markAutoSwitchNotification(autoSwitchSignature)
     setAutoSwitchDialogMode(null)
     showSystemNotification(
       t.autoSwitch.noAvailableTitle,

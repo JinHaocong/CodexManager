@@ -119,9 +119,49 @@ export function canAutoSwitchTo(account: Account): boolean {
 }
 
 /**
+ * 根据触发原因决定候选账号的优先比较维度。
+ *
+ * @param account 候选账号。
+ * @param cause 当前自动切换触发原因。
+ */
+function getPrimaryUsageScore(account: Account, cause: AutoSwitchCause | null): number {
+  if (cause === '7d') {
+    return account.usage_week
+  }
+
+  if (cause === 'both') {
+    return Math.max(account.usage_5h, account.usage_week)
+  }
+
+  return account.usage_5h
+}
+
+/**
+ * 当主比较维度一致时，再用次级指标兜底，尽量挑出整体更健康的账号。
+ *
+ * @param account 候选账号。
+ * @param cause 当前自动切换触发原因。
+ */
+function getSecondaryUsageScore(account: Account, cause: AutoSwitchCause | null): number {
+  if (cause === '7d') {
+    return account.usage_5h
+  }
+
+  if (cause === 'both') {
+    return account.usage_5h + account.usage_week
+  }
+
+  return account.usage_week
+}
+
+/**
  * 选择最适合自动切换的账号，优先健康状态与剩余额度更高的账号。
  */
-export function findNextAvailableAccount(accounts: Account[], activeId: string | null): Account | null {
+export function findNextAvailableAccount(
+  accounts: Account[],
+  activeId: string | null,
+  cause: AutoSwitchCause | null = null,
+): Account | null {
   const candidates = accounts
     .filter((account) => account.id !== activeId && canAutoSwitchTo(account))
     .sort((left, right) => {
@@ -131,12 +171,12 @@ export function findNextAvailableAccount(accounts: Account[], activeId: string |
         return statusDelta
       }
 
-      const primaryWindowDelta = left.usage_5h - right.usage_5h
-      if (primaryWindowDelta !== 0) {
-        return primaryWindowDelta
+      const primaryUsageDelta = getPrimaryUsageScore(left, cause) - getPrimaryUsageScore(right, cause)
+      if (primaryUsageDelta !== 0) {
+        return primaryUsageDelta
       }
 
-      return left.usage_week - right.usage_week
+      return getSecondaryUsageScore(left, cause) - getSecondaryUsageScore(right, cause)
     })
 
   return candidates[0] ?? null

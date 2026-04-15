@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { getUsage, getAccountsCheck } from '../services/api'
-import type { Account, Lang, OAuthTokenPayload, RefreshIntervalMinutes } from '../types'
+import type {
+  Account,
+  Lang,
+  OAuthTokenPayload,
+  RefreshIntervalMinutes,
+  RefreshTokenPayload,
+} from '../types'
 import { getLatestUpdateAt } from '../utils/account-display'
 
 /**
@@ -19,9 +25,25 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   const lastUpdateAt = useMemo(() => getLatestUpdateAt(accounts), [accounts])
 
   /**
-   * 记录最近一次刷新完成的时间戳，用于防止外部触发与定时器并发执行。
+   * 保存最新账号列表，供刷新中的异步闭包读取当前快照。
    */
-  const lastRefreshTimeRef = useRef<number>(0)
+  const accountsRef = useRef<Account[]>([])
+  /**
+   * 保存最新激活账号 ID，避免异步刷新过程里读到旧闭包值。
+   */
+  const activeIdRef = useRef<string | null>(null)
+  /**
+   * 复用全量刷新中的 Promise，避免托盘展开、定时器和手动触发并发执行。
+   */
+  const refreshAllPromiseRef = useRef<Promise<void> | null>(null)
+
+  useEffect(() => {
+    accountsRef.current = accounts
+  }, [accounts])
+
+  useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
 
   useEffect(() => {
     let mounted = true
@@ -89,10 +111,33 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
         return null
       }
 
-      const { access_token, refresh_token, id_token } = result.data as OAuthTokenPayload
-      return { ...account, access_token, refresh_token, id_token }
+      const tokenPayload = result.data as RefreshTokenPayload
+
+      // 刷新接口可能只返回新的 access_token，缺失字段时保留旧值，避免把账号写成半失效状态。
+      return {
+        ...account,
+        access_token: tokenPayload.access_token,
+        refresh_token: tokenPayload.refresh_token || account.refresh_token,
+        id_token: tokenPayload.id_token || account.id_token,
+      }
     } catch {
       return null
+    }
+  }, [])
+
+  /**
+   * 当前激活账号的 token 在后台刷新后，同步写回 Codex 的 auth.json。
+   *
+   * @param account 已拿到最新 token 的账号。
+   */
+  const syncActiveAccountAuth = useCallback(async (account: Account): Promise<void> => {
+    if (!activeIdRef.current || account.id !== activeIdRef.current) {
+      return
+    }
+
+    const result = await window.codexAPI.syncAccountAuth(account)
+    if (!result.success) {
+      console.error('Failed to sync active account auth:', result.error)
     }
   }, [])
 
@@ -110,6 +155,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
         const refreshed = await tryRefreshToken(workingAccount)
         if (refreshed) {
           workingAccount = refreshed
+          await syncActiveAccountAuth(workingAccount)
           usageRes = await getUsage(workingAccount, lang)
         }
       }
@@ -162,7 +208,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     } catch {
       return account
     }
-  }, [lang, tryRefreshToken])
+  }, [lang, syncActiveAccountAuth, tryRefreshToken])
 
   useEffect(() => {
     const handleOAuthSuccess = async (tokenData: OAuthTokenPayload): Promise<void> => {
@@ -214,25 +260,36 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   /**
    * 外部调用：全量刷新。
    */
-  const refreshAll = useCallback(async (): Promise<void> => {
-    if (!accounts.length || isRefreshing) {
-      return
+  const refreshAll = useCallback((): Promise<void> => {
+    if (refreshAllPromiseRef.current) {
+      return refreshAllPromiseRef.current
     }
 
-    lastRefreshTimeRef.current = Date.now()
-    setIsRefreshing(true)
-
-    try {
-      const snapshot = accounts
-      const updated = await Promise.all(snapshot.map(refreshOne))
-      const updatedMap = new Map(updated.map((account) => [account.id, account]))
-
-      // 只回填当前仍存在的账号，避免删除操作被并发刷新"写回来"。
-      setAccounts((previous) => previous.map((item) => updatedMap.get(item.id) ?? item))
-    } finally {
-      setIsRefreshing(false)
+    if (!accountsRef.current.length) {
+      return Promise.resolve()
     }
-  }, [accounts, isRefreshing, refreshOne])
+
+    const runRefreshAll = async (): Promise<void> => {
+      setIsRefreshing(true)
+
+      try {
+        const snapshot = [...accountsRef.current]
+        const updated = await Promise.all(snapshot.map(refreshOne))
+        const updatedMap = new Map(updated.map((account) => [account.id, account]))
+
+        // 只回填当前仍存在的账号，避免删除操作被并发刷新“写回来”。
+        setAccounts((previous) => previous.map((item) => updatedMap.get(item.id) ?? item))
+      } finally {
+        setIsRefreshing(false)
+        refreshAllPromiseRef.current = null
+      }
+    }
+
+    const refreshPromise = runRefreshAll()
+    refreshAllPromiseRef.current = refreshPromise
+
+    return refreshPromise
+  }, [refreshOne])
 
   useEffect(() => {
     if (!isLoaded || !accounts.length) {
@@ -254,13 +311,8 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   useEffect(() => {
     /**
      * 主进程要求立即同步时，复用同一套全量刷新逻辑。
-     * 距上次刷新不足 10 秒时跳过，避免与定时器或打开面板时的刷新并发执行。
      */
     const handleExternalRefresh = (): void => {
-      const now = Date.now()
-      if (now - lastRefreshTimeRef.current < 10_000) {
-        return
-      }
       void refreshAll()
     }
 

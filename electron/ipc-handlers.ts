@@ -20,14 +20,27 @@ interface RegisterIpcHandlersOptions {
 }
 
 /**
+ * 安全删除临时文件，忽略不存在的场景。
+ *
+ * @param filePath 需要删除的文件路径。
+ */
+function removeFileIfExists(filePath: string): void {
+  if (fs.existsSync(filePath)) {
+    fs.rmSync(filePath, { force: true })
+  }
+}
+
+/**
  * 将选中的账号令牌写回 Codex 本地配置。
- * 写入前备份原文件，写入失败时自动回滚，保证配置不会因异常被清空。
+ * 通过临时文件 + 短生命周期备份完成原子替换，写入失败时自动回滚。
  *
  * @param account 需要切换到的账号。
  */
 function persistCodexAuth(account: Account): void {
-  const backupPath = `${APP_CONFIG.AUTH_FILE}.bak`
+  const backupPath = `${APP_CONFIG.AUTH_FILE}.bak.tmp`
+  const tempPath = `${APP_CONFIG.AUTH_FILE}.tmp`
   let config: Record<string, unknown> = {}
+  let backupCreated = false
 
   if (fs.existsSync(APP_CONFIG.AUTH_FILE)) {
     const raw = fs.readFileSync(APP_CONFIG.AUTH_FILE, 'utf-8')
@@ -35,6 +48,7 @@ function persistCodexAuth(account: Account): void {
       config = JSON.parse(raw) as Record<string, unknown>
       // 写入前先保留备份，用于失败时回滚。
       fs.writeFileSync(backupPath, raw)
+      backupCreated = true
     }
   }
 
@@ -51,17 +65,24 @@ function persistCodexAuth(account: Account): void {
   fs.mkdirSync(path.dirname(APP_CONFIG.AUTH_FILE), { recursive: true })
 
   try {
-    fs.writeFileSync(APP_CONFIG.AUTH_FILE, JSON.stringify(config, null, 2))
+    removeFileIfExists(tempPath)
+    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2))
+    fs.renameSync(tempPath, APP_CONFIG.AUTH_FILE)
+    removeFileIfExists(backupPath)
   } catch (err) {
+    removeFileIfExists(tempPath)
+
     // 写入失败时尝试从备份恢复，确保账号状态不丢失。
-    if (fs.existsSync(backupPath)) {
+    if (backupCreated && fs.existsSync(backupPath)) {
       try {
-        fs.writeFileSync(APP_CONFIG.AUTH_FILE, fs.readFileSync(backupPath))
+        fs.renameSync(backupPath, APP_CONFIG.AUTH_FILE)
       } catch {
         // 回滚也失败时，只记录日志，不再继续抛出，避免二次崩溃。
         console.error('persistCodexAuth: failed to restore backup')
       }
     }
+
+    removeFileIfExists(backupPath)
     throw err
   }
 }
@@ -122,7 +143,17 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
     }
   })
 
-  // 4. Token 刷新（401 时用 refresh_token 换取新 access_token，避免用户被迫重新登录）
+  // 4. 后台 token 刷新成功后，同步更新当前 Codex 生效的 auth 配置。
+  ipcMain.handle('sync-account-auth', async (_, account: Account) => {
+    try {
+      persistCodexAuth(account)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 5. Token 刷新（401 时用 refresh_token 换取新 access_token，避免用户被迫重新登录）
   ipcMain.handle('refresh-token', async (_, account: Account) => {
     try {
       const response = await axios.post(
@@ -143,7 +174,7 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
     }
   })
 
-  // 5. 应用控制
+  // 6. 应用控制
   ipcMain.on('show-system-notification', (_event, payload: SystemNotificationPayload) => {
     if (!payload?.title || !payload?.body) {
       return

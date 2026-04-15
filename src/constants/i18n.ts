@@ -28,6 +28,7 @@ export interface AppLocaleText {
     refreshing: string
     addAccount: string
     switch: string
+    unavailable: string
     switching: string
     remove: string
     quit: string
@@ -55,6 +56,13 @@ export interface AppLocaleText {
     noAccountsDescription: string
     noMatchTitle: string
     noMatchDescription: string
+  }
+  switchGuard: {
+    disabled: string
+    expired: string
+    exhausted: (reason: string) => string
+    exhaustedWithReset: (reason: string, reset: string) => string
+    unavailable: string
   }
   status: Record<AccountStatus, string>
   statusDescription: Record<AccountStatus, string>
@@ -108,6 +116,7 @@ export const translations = {
       refreshing: 'Refreshing',
       addAccount: 'Add account',
       switch: 'Switch',
+      unavailable: 'Unavailable',
       switching: 'Switching',
       remove: 'Remove',
       quit: 'Quit',
@@ -135,6 +144,13 @@ export const translations = {
       noAccountsDescription: 'Connect your first account to start switching workspaces and monitoring usage here.',
       noMatchTitle: 'Nothing in this view',
       noMatchDescription: 'Try another filter to see the rest of your workspaces.'
+    },
+    switchGuard: {
+      disabled: 'This workspace is currently disabled and cannot be switched to.',
+      expired: 'This session has expired. Refresh the account before switching.',
+      exhausted: (reason: string) => `This workspace has exhausted its ${reason} and cannot be switched to right now.`,
+      exhaustedWithReset: (reason: string, reset: string) => `This workspace has exhausted its ${reason}. It should be available again in ${reset}.`,
+      unavailable: 'This workspace is currently unavailable. Refresh it and try again.'
     },
     status: {
       normal: 'Healthy',
@@ -201,6 +217,7 @@ export const translations = {
       refreshing: '刷新中',
       addAccount: '添加账号',
       switch: '切换',
+      unavailable: '不可切换',
       switching: '切换中',
       remove: '移除',
       quit: '退出',
@@ -228,6 +245,13 @@ export const translations = {
       noAccountsDescription: '先接入一个账号，之后你就可以在这里统一切换工作空间并查看额度状态。',
       noMatchTitle: '当前筛选下没有结果',
       noMatchDescription: '换一个筛选条件，就能看到其他工作空间。'
+    },
+    switchGuard: {
+      disabled: '这个工作空间当前已被禁用，暂时不能切换过去。',
+      expired: '这个账号的会话已经失效，请先刷新账号后再切换。',
+      exhausted: (reason: string) => `这个工作空间的${reason}已耗尽，当前无法切换。`,
+      exhaustedWithReset: (reason: string, reset: string) => `这个工作空间的${reason}已耗尽，预计 ${reset} 后可再次使用。`,
+      unavailable: '这个工作空间当前不可用，请刷新后再试。'
     },
     status: {
       normal: '状态健康',

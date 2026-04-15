@@ -4,6 +4,7 @@ import * as Lucide from "lucide-react";
 import type { AppLocaleText } from "../constants/i18n";
 import type { Account } from "../types";
 import {
+  canAutoSwitchTo,
   clampUsage,
   getPlanTone,
   getShortAccountId,
@@ -17,6 +18,7 @@ interface Props {
   isRefreshing: boolean;
   isSwitching: boolean;
   onSwitch: (acc: Account) => void;
+  onUnavailableSwitchAttempt: (acc: Account) => void;
   onRefresh: (acc: Account) => void;
   onDelete: (acc: Account) => void;
   resetText: string;
@@ -34,6 +36,7 @@ export function AccountCard({
   isRefreshing,
   isSwitching,
   onSwitch,
+  onUnavailableSwitchAttempt,
   onRefresh,
   onDelete,
   resetText,
@@ -44,7 +47,9 @@ export function AccountCard({
   const statusTone = getStatusTone(account.status);
   const planTone = getPlanTone(account.planType || "free");
   const isBusy = isRefreshing || isSwitching;
-  const canSwitchByCard = !isActive && !isSwitching;
+  const canSwitchAccount = !isActive && !isSwitching && canAutoSwitchTo(account);
+  const canExplainUnavailable = !isActive && !isSwitching && !canAutoSwitchTo(account);
+  const canInteractWithCard = canSwitchAccount || canExplainUnavailable;
 
   // 只有预警和耗尽状态才拼接重置文案，避免健康状态信息过载。
   const description =
@@ -70,8 +75,13 @@ export function AccountCard({
    * 卡片本身支持直接切换，和悬浮手型保持一致。
    */
   const handleCardSwitch = (): void => {
-    if (canSwitchByCard) {
+    if (canSwitchAccount) {
       onSwitch(account);
+      return;
+    }
+
+    if (canExplainUnavailable) {
+      onUnavailableSwitchAttempt(account);
     }
   };
 
@@ -79,12 +89,12 @@ export function AccountCard({
    * 允许通过键盘触发卡片切换，补齐基础可访问性。
    */
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-    if (!canSwitchByCard || (event.key !== "Enter" && event.key !== " ")) {
+    if (!canInteractWithCard || (event.key !== "Enter" && event.key !== " ")) {
       return;
     }
 
     event.preventDefault();
-    onSwitch(account);
+    handleCardSwitch();
   };
 
   /**
@@ -96,9 +106,9 @@ export function AccountCard({
 
   return (
     <article
-      className={`account-card ${isActive ? "is-active" : ""} ${canSwitchByCard ? "is-clickable" : ""}`}
-      role={canSwitchByCard ? "button" : undefined}
-      tabIndex={canSwitchByCard ? 0 : undefined}
+      className={`account-card ${isActive ? "is-active" : ""} ${canSwitchAccount ? "is-clickable" : ""} ${canExplainUnavailable ? "is-unavailable-clickable" : ""}`}
+      role={canInteractWithCard ? "button" : undefined}
+      tabIndex={canInteractWithCard ? 0 : undefined}
       onClick={handleCardSwitch}
       onKeyDown={handleCardKeyDown}
     >
@@ -195,19 +205,29 @@ export function AccountCard({
       <div className="account-card-footer">
         <span className="account-footnote">{account.email}</span>
         <button
-          className={`switch-button ${isActive ? "is-active" : ""} ${isSwitching ? "is-loading" : ""}`}
+          className={`switch-button ${isActive ? "is-active" : ""} ${isSwitching ? "is-loading" : ""} ${canExplainUnavailable ? "is-unavailable" : ""}`}
           type="button"
           onClick={(event) => {
             stopCardClick(event);
-            onSwitch(account);
+            if (canSwitchAccount) {
+              onSwitch(account);
+              return;
+            }
+
+            if (canExplainUnavailable) {
+              onUnavailableSwitchAttempt(account);
+            }
           }}
+          aria-disabled={canExplainUnavailable || undefined}
           disabled={isActive || isSwitching}
         >
           {isActive
             ? t.meta.current
             : isSwitching
               ? t.actions.switching
-              : t.actions.switch}
+              : canExplainUnavailable
+                ? t.actions.unavailable
+                : t.actions.switch}
         </button>
       </div>
     </article>

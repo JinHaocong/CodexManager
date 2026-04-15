@@ -5,6 +5,7 @@ import { AutoSwitchDialog } from "./components/AutoSwitchDialog";
 import { EmptyState } from "./components/EmptyState";
 import { Footer } from "./components/Footer";
 import { Header } from "./components/Header";
+import { NoticeToast } from "./components/NoticeToast";
 
 import { translations } from "./constants/i18n";
 
@@ -21,6 +22,7 @@ import type {
   SystemNotificationIntent,
 } from "./types";
 import {
+  getAutoSwitchCause,
   formatResetTime,
   formatTimestamp,
   getAttentionCount,
@@ -41,6 +43,8 @@ function App() {
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [skipAutoSwitchConfirm, setSkipAutoSwitchConfirm] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [noticeNonce, setNoticeNonce] = useState(0);
 
   const {
     accounts,
@@ -223,6 +227,94 @@ function App() {
     [t.personalWorkspace],
   );
 
+  /**
+   * 计算额度用尽账号距离“再次可切换”的预计恢复时间。
+   *
+   * `both` 需要等两个窗口都恢复，因此取更晚的重置时间。
+   *
+   * @param account 当前账号。
+   */
+  const getUnavailableResetTime = useCallback(
+    (account: Account): string => {
+      const cause = getAutoSwitchCause(account);
+      const resetAt =
+        cause === "7d"
+          ? account.reset_week
+          : cause === "both"
+            ? Math.max(account.reset_5h ?? 0, account.reset_week ?? 0) || undefined
+            : account.reset_5h;
+
+      return formatResetTime(resetAt, lang);
+    },
+    [lang],
+  );
+
+  /**
+   * 给不可切换账号生成更明确的提示语，避免用户只看到按钮不可用却不知道原因。
+   */
+  const getUnavailableSwitchMessage = useCallback(
+    (account: Account): string => {
+      if (account.status === "disabled") {
+        return t.switchGuard.disabled;
+      }
+
+      if (account.status === "expired") {
+        return t.switchGuard.expired;
+      }
+
+      if (account.status === "exhausted") {
+        const cause = getAutoSwitchCause(account) ?? "5h";
+        const resetText = getUnavailableResetTime(account);
+        const reasonLabel = t.autoSwitch.reasonLabel(cause);
+
+        if (resetText) {
+          return t.switchGuard.exhaustedWithReset(reasonLabel, resetText);
+        }
+
+        return t.switchGuard.exhausted(reasonLabel);
+      }
+
+      return t.switchGuard.unavailable;
+    },
+    [getUnavailableResetTime, t],
+  );
+
+  /**
+   * 展示短时轻提示，并在重复点击同一账号时重置消失计时。
+   *
+   * @param message 需要提示的文案。
+   */
+  const showNotice = useCallback((message: string): void => {
+    setNoticeMessage(message);
+    setNoticeNonce((value) => value + 1);
+  }, []);
+
+  /**
+   * 不可切换账号被点击时，给出明确原因提示。
+   *
+   * @param account 用户尝试切换的账号。
+   */
+  const handleUnavailableSwitchAttempt = useCallback(
+    (account: Account): void => {
+      showNotice(getUnavailableSwitchMessage(account));
+    },
+    [getUnavailableSwitchMessage, showNotice],
+  );
+
+  useEffect(() => {
+    if (!noticeMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNoticeMessage(null);
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [noticeMessage, noticeNonce]);
+
   useEffect(() => {
     /**
      * OAuth 流程异常时给出统一提示，避免用户只看到浏览器没反应。
@@ -321,6 +413,7 @@ function App() {
                     reset5hText={formatResetTime(account.reset_5h, lang)}
                     resetWeekText={formatResetTime(account.reset_week, lang)}
                     onSwitch={handleSwitchAccount}
+                    onUnavailableSwitchAttempt={handleUnavailableSwitchAttempt}
                     onRefresh={handleRefreshOne}
                     onDelete={handleDeleteAccount}
                   />
@@ -359,6 +452,8 @@ function App() {
         onQuit={() => window.codexAPI.quitApp()}
         translations={t}
       />
+
+      {noticeMessage && <NoticeToast message={noticeMessage} />}
 
       {autoSwitchDialogMode && activeAccount && (
         <AutoSwitchDialog
