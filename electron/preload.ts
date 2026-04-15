@@ -2,14 +2,20 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
   Account,
+  AccountUsageHistory,
+  AppBackupPayload,
+  AutoSwitchStrategy,
   CodexAPI,
+  DiagnosticLogEntry,
   Lang,
+  NotificationSettings,
   OAuthErrorPayload,
   OAuthTokenPayload,
   ProxyRequestPayload,
   ProxyResponse,
   RefreshTokenPayload,
   RefreshIntervalMinutes,
+  SecureStorageStatus,
   SwitchAccountResult,
   SystemNotificationPayload,
 } from '../src/types'
@@ -73,9 +79,46 @@ const api: CodexAPI = {
   setRefreshIntervalMinutes: (value: RefreshIntervalMinutes) => {
     return ipcRenderer.invoke('set-refresh-interval-minutes', value) as Promise<void>
   },
+  getAutoSwitchStrategy: () => {
+    return ipcRenderer.invoke('get-auto-switch-strategy') as Promise<AutoSwitchStrategy | undefined>
+  },
+  setAutoSwitchStrategy: (value: AutoSwitchStrategy) => {
+    return ipcRenderer.invoke('set-auto-switch-strategy', value) as Promise<void>
+  },
+  getNotificationSettings: () => {
+    return ipcRenderer.invoke('get-notification-settings') as Promise<NotificationSettings | undefined>
+  },
+  setNotificationSettings: (value: NotificationSettings) => {
+    return ipcRenderer.invoke('set-notification-settings', value) as Promise<void>
+  },
+  getPinnedAccountIds: () => ipcRenderer.invoke('get-pinned-account-ids') as Promise<string[] | undefined>,
+  setPinnedAccountIds: (value: string[]) => {
+    return ipcRenderer.invoke('set-pinned-account-ids', value) as Promise<void>
+  },
+  getUsageHistory: () => {
+    return ipcRenderer.invoke('get-usage-history') as Promise<AccountUsageHistory | undefined>
+  },
+  setUsageHistory: (value: AccountUsageHistory) => {
+    return ipcRenderer.invoke('set-usage-history', value) as Promise<void>
+  },
+  getDiagnosticLogs: () => {
+    return ipcRenderer.invoke('get-diagnostic-logs') as Promise<DiagnosticLogEntry[] | undefined>
+  },
+  setDiagnosticLogs: (value: DiagnosticLogEntry[]) => {
+    return ipcRenderer.invoke('set-diagnostic-logs', value) as Promise<void>
+  },
+  getSecureStorageStatus: () => {
+    return ipcRenderer.invoke('get-secure-storage-status') as Promise<SecureStorageStatus>
+  },
   switchAccount: (account: Account) => ipcRenderer.invoke('switch-account', account) as Promise<SwitchAccountResult>,
   syncAccountAuth: (account: Account) => ipcRenderer.invoke('sync-account-auth', account) as Promise<SwitchAccountResult>,
   refreshToken: (account: Account) => ipcRenderer.invoke('refresh-token', account) as Promise<ProxyResponse<RefreshTokenPayload>>,
+  exportAppBackup: (payload: AppBackupPayload) => {
+    return ipcRenderer.invoke('export-app-backup', payload) as Promise<SwitchAccountResult>
+  },
+  importAppBackup: () => {
+    return ipcRenderer.invoke('import-app-backup') as Promise<ProxyResponse<AppBackupPayload>>
+  },
   startOAuth: () => ipcRenderer.send('start-oauth'),
   quitApp: () => ipcRenderer.send('quit-app'),
   showSystemNotification: (payload: SystemNotificationPayload) => ipcRenderer.send('show-system-notification', payload),

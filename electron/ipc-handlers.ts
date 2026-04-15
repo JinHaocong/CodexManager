@@ -1,17 +1,36 @@
-import { ipcMain, app, BrowserWindow, Notification } from 'electron'
+import { ipcMain, app, BrowserWindow, Notification, dialog } from 'electron'
 import axios from 'axios'
 import fs from 'node:fs'
 import path from 'node:path'
 import querystring from 'node:querystring'
 
-import type { Account, ProxyRequestPayload, SystemNotificationPayload } from '../src/types'
+import type {
+  Account,
+  AppBackupPayload,
+  AutoSwitchStrategy,
+  DiagnosticLogEntry,
+  NotificationSettings,
+  ProxyRequestPayload,
+  RefreshIntervalMinutes,
+  SystemNotificationPayload,
+} from '../src/types'
+import {
+  DEFAULT_AUTO_SWITCH_STRATEGY,
+  DEFAULT_NOTIFICATION_SETTINGS,
+  REFRESH_INTERVAL_OPTIONS,
+} from '../src/types'
 
-import store from './store'
+import store, {
+  getAccountsFromStore,
+  getSecureStorageStatus,
+  setAccountsInStore,
+} from './store'
 import { APP_CONFIG, getAssetPath } from './constants'
 import { OAuthService } from './oauth-service'
 
 const oauthService = new OAuthService()
 const OPEN_AUTO_SWITCH_DIALOG_EVENT = 'open-auto-switch-dialog'
+const BACKUP_VERSION = 1
 
 interface RegisterIpcHandlersOptions {
   getMainWindow: () => BrowserWindow | null
@@ -99,6 +118,160 @@ function scheduleRelaunch(): void {
 }
 
 /**
+ * 判断值是否为可遍历对象。
+ *
+ * @param value 待校验的值。
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * 过滤出字符串数组，避免导入脏数据污染配置。
+ *
+ * @param value 待规范化的值。
+ */
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
+/**
+ * 规范化自动刷新间隔，确保导入与外部写入始终落在支持的档位内。
+ *
+ * @param value 原始值。
+ */
+function normalizeRefreshInterval(value: unknown): RefreshIntervalMinutes {
+  if (
+    typeof value === 'number' &&
+    REFRESH_INTERVAL_OPTIONS.includes(value as RefreshIntervalMinutes)
+  ) {
+    return value as RefreshIntervalMinutes
+  }
+
+  return 3
+}
+
+/**
+ * 对自动切换策略做兜底规范化。
+ *
+ * @param value 原始策略配置。
+ */
+function normalizeAutoSwitchStrategy(value: unknown): AutoSwitchStrategy {
+  if (!isRecord(value)) {
+    return DEFAULT_AUTO_SWITCH_STRATEGY
+  }
+
+  const cooldownMinutes = [0, 5, 10, 20, 30].includes(Number(value.cooldownMinutes))
+    ? Number(value.cooldownMinutes)
+    : DEFAULT_AUTO_SWITCH_STRATEGY.cooldownMinutes
+
+  return {
+    minRemaining5h:
+      typeof value.minRemaining5h === 'number'
+        ? Math.max(0, Math.min(50, Math.round(value.minRemaining5h)))
+        : DEFAULT_AUTO_SWITCH_STRATEGY.minRemaining5h,
+    minRemaining7d:
+      typeof value.minRemaining7d === 'number'
+        ? Math.max(0, Math.min(50, Math.round(value.minRemaining7d)))
+        : DEFAULT_AUTO_SWITCH_STRATEGY.minRemaining7d,
+    cooldownMinutes: cooldownMinutes as AutoSwitchStrategy['cooldownMinutes'],
+    excludedAccountIds: toStringArray(value.excludedAccountIds),
+  }
+}
+
+/**
+ * 对通知偏好做兜底规范化。
+ *
+ * @param value 原始通知配置。
+ */
+function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  if (!isRecord(value)) {
+    return DEFAULT_NOTIFICATION_SETTINGS
+  }
+
+  return {
+    autoSwitchConfirm:
+      typeof value.autoSwitchConfirm === 'boolean'
+        ? value.autoSwitchConfirm
+        : DEFAULT_NOTIFICATION_SETTINGS.autoSwitchConfirm,
+    autoSwitchUnavailable:
+      typeof value.autoSwitchUnavailable === 'boolean'
+        ? value.autoSwitchUnavailable
+        : DEFAULT_NOTIFICATION_SETTINGS.autoSwitchUnavailable,
+    switchSuccess:
+      typeof value.switchSuccess === 'boolean'
+        ? value.switchSuccess
+        : DEFAULT_NOTIFICATION_SETTINGS.switchSuccess,
+    oauthError:
+      typeof value.oauthError === 'boolean'
+        ? value.oauthError
+        : DEFAULT_NOTIFICATION_SETTINGS.oauthError,
+    quietHoursEnabled:
+      typeof value.quietHoursEnabled === 'boolean'
+        ? value.quietHoursEnabled
+        : DEFAULT_NOTIFICATION_SETTINGS.quietHoursEnabled,
+    quietHoursStart:
+      typeof value.quietHoursStart === 'string'
+        ? value.quietHoursStart
+        : DEFAULT_NOTIFICATION_SETTINGS.quietHoursStart,
+    quietHoursEnd:
+      typeof value.quietHoursEnd === 'string'
+        ? value.quietHoursEnd
+        : DEFAULT_NOTIFICATION_SETTINGS.quietHoursEnd,
+  }
+}
+
+/**
+ * 规范化诊断日志数组，导入时自动裁剪到最近 120 条。
+ *
+ * @param value 原始日志集合。
+ */
+function normalizeDiagnosticLogs(value: unknown): DiagnosticLogEntry[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item): item is DiagnosticLogEntry => isRecord(item) && typeof item.message === 'string')
+    .slice(-120)
+}
+
+/**
+ * 规范化导入备份内容，兼容缺字段或旧版本文件。
+ *
+ * @param payload 原始备份对象。
+ */
+function normalizeBackupPayload(payload: unknown): AppBackupPayload | null {
+  if (!isRecord(payload) || !isRecord(payload.data)) {
+    return null
+  }
+
+  const data = payload.data
+
+  return {
+    version: typeof payload.version === 'number' ? payload.version : BACKUP_VERSION,
+    exportedAt:
+      typeof payload.exportedAt === 'string' ? payload.exportedAt : new Date().toISOString(),
+    data: {
+      accounts: Array.isArray(data.accounts) ? (data.accounts as Account[]) : [],
+      activeId: typeof data.activeId === 'string' || data.activeId === null ? data.activeId : null,
+      lang: data.lang === 'ZH' ? 'ZH' : 'EN',
+      skipAutoSwitchConfirm: Boolean(data.skipAutoSwitchConfirm),
+      refreshIntervalMinutes: normalizeRefreshInterval(data.refreshIntervalMinutes),
+      autoSwitchStrategy: normalizeAutoSwitchStrategy(data.autoSwitchStrategy),
+      notificationSettings: normalizeNotificationSettings(data.notificationSettings),
+      pinnedAccountIds: toStringArray(data.pinnedAccountIds),
+      usageHistory: isRecord(data.usageHistory) ? (data.usageHistory as AppBackupPayload['data']['usageHistory']) : {},
+      diagnosticLogs: normalizeDiagnosticLogs(data.diagnosticLogs),
+    },
+  }
+}
+
+/**
  * 注册所有 IPC 事件处理器。
  */
 export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuLang }: RegisterIpcHandlersOptions) {
@@ -114,11 +287,9 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
 
   // 2. 持久化存储读写
   ipcMain.handle('get-accounts', () => {
-    const accounts = store.get('accounts')
-    // 防御性校验，避免脏数据传入渲染层导致崩溃。
-    return Array.isArray(accounts) ? accounts : []
+    return getAccountsFromStore()
   })
-  ipcMain.handle('set-accounts', (_, accounts) => store.set('accounts', accounts))
+  ipcMain.handle('set-accounts', (_, accounts: Account[]) => setAccountsInStore(Array.isArray(accounts) ? accounts : []))
   ipcMain.handle('get-active-id', () => store.get('activeId'))
   ipcMain.handle('set-active-id', (_, id) => store.set('activeId', id))
   ipcMain.handle('get-lang', () => store.get('lang'))
@@ -130,7 +301,37 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
   ipcMain.handle('get-skip-auto-switch-confirm', () => store.get('skipAutoSwitchConfirm'))
   ipcMain.handle('set-skip-auto-switch-confirm', (_, value) => store.set('skipAutoSwitchConfirm', value))
   ipcMain.handle('get-refresh-interval-minutes', () => store.get('refreshIntervalMinutes'))
-  ipcMain.handle('set-refresh-interval-minutes', (_, value) => store.set('refreshIntervalMinutes', value))
+  ipcMain.handle('set-refresh-interval-minutes', (_, value) => {
+    store.set('refreshIntervalMinutes', normalizeRefreshInterval(value))
+  })
+  ipcMain.handle('get-auto-switch-strategy', () => {
+    return normalizeAutoSwitchStrategy(store.get('autoSwitchStrategy'))
+  })
+  ipcMain.handle('set-auto-switch-strategy', (_, value) => {
+    store.set('autoSwitchStrategy', normalizeAutoSwitchStrategy(value))
+  })
+  ipcMain.handle('get-notification-settings', () => {
+    return normalizeNotificationSettings(store.get('notificationSettings'))
+  })
+  ipcMain.handle('set-notification-settings', (_, value) => {
+    store.set('notificationSettings', normalizeNotificationSettings(value))
+  })
+  ipcMain.handle('get-pinned-account-ids', () => toStringArray(store.get('pinnedAccountIds')))
+  ipcMain.handle('set-pinned-account-ids', (_, value) => {
+    store.set('pinnedAccountIds', toStringArray(value))
+  })
+  ipcMain.handle('get-usage-history', () => {
+    const usageHistory = store.get('usageHistory')
+    return isRecord(usageHistory) ? usageHistory : {}
+  })
+  ipcMain.handle('set-usage-history', (_, value) => {
+    store.set('usageHistory', isRecord(value) ? value : {})
+  })
+  ipcMain.handle('get-diagnostic-logs', () => normalizeDiagnosticLogs(store.get('diagnosticLogs')))
+  ipcMain.handle('set-diagnostic-logs', (_, value) => {
+    store.set('diagnosticLogs', normalizeDiagnosticLogs(value))
+  })
+  ipcMain.handle('get-secure-storage-status', () => getSecureStorageStatus())
 
   // 3. 账户切换 (写入 ~/.codex/auth.json 并重启)
   ipcMain.handle('switch-account', async (_, account: Account) => {
@@ -174,7 +375,55 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
     }
   })
 
-  // 6. 应用控制
+  // 6. 数据备份导入导出
+  ipcMain.handle('export-app-backup', async (_, payload: AppBackupPayload) => {
+    const backupPayload = normalizeBackupPayload(payload)
+    if (!backupPayload) {
+      return { success: false, error: 'Invalid backup payload' }
+    }
+
+    const result = await dialog.showSaveDialog({
+      defaultPath: `CodexManager-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, error: 'cancelled' }
+    }
+
+    try {
+      fs.writeFileSync(result.filePath, JSON.stringify(backupPayload, null, 2), 'utf-8')
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('import-app-backup', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { success: true }
+    }
+
+    try {
+      const raw = fs.readFileSync(result.filePaths[0], 'utf-8')
+      const parsed = normalizeBackupPayload(JSON.parse(raw))
+
+      if (!parsed) {
+        return { success: false, error: 'Invalid backup file' }
+      }
+
+      return { success: true, data: parsed }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 7. 应用控制
   ipcMain.on('show-system-notification', (_event, payload: SystemNotificationPayload) => {
     if (!payload?.title || !payload?.body) {
       return

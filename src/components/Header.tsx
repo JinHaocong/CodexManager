@@ -14,6 +14,7 @@ interface Props {
   selectedFilter: AccountFilter
   lastUpdatedLabel: string
   isRefreshing: boolean
+  showFilters?: boolean
   onRefreshAll: () => void
   onFilterChange: (filter: AccountFilter) => void
   translations: AppLocaleText
@@ -32,6 +33,7 @@ export function Header({
   selectedFilter,
   lastUpdatedLabel,
   isRefreshing,
+  showFilters = true,
   onRefreshAll,
   onFilterChange,
   translations: t
@@ -84,18 +86,20 @@ export function Header({
         ))}
       </div>
 
-      <div className="filter-bar no-drag">
-        {filterOrder.map((filter) => (
-          <button
-            key={filter}
-            className={`filter-chip ${selectedFilter === filter ? 'is-active' : ''}`}
-            type="button"
-            onClick={() => onFilterChange(filter)}
-          >
-            {t.filters[filter]}
-          </button>
-        ))}
-      </div>
+      {showFilters && (
+        <div className="filter-bar no-drag">
+          {filterOrder.map((filter) => (
+            <button
+              key={filter}
+              className={`filter-chip ${selectedFilter === filter ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => onFilterChange(filter)}
+            >
+              {t.filters[filter]}
+            </button>
+          ))}
+        </div>
+      )}
     </header>
   )
 }

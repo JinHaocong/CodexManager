@@ -1,8 +1,12 @@
+import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { getUsage, getAccountsCheck } from '../services/api'
+import { getAccountsCheck, getUsage } from '../services/api'
 import type {
   Account,
+  AccountUsageHistory,
+  AccountUsageHistoryPoint,
+  DiagnosticLogInput,
   Lang,
   OAuthTokenPayload,
   RefreshIntervalMinutes,
@@ -10,14 +14,106 @@ import type {
 } from '../types'
 import { getLatestUpdateAt } from '../utils/account-display'
 
+const HISTORY_POINT_LIMIT = 24
+
+interface UseAccountsOptions {
+  lang: Lang
+  refreshIntervalMinutes: RefreshIntervalMinutes
+  appendDiagnosticLog: (entry: DiagnosticLogInput) => void
+}
+
+interface UseAccountsResult {
+  accounts: Account[]
+  setAccounts: Dispatch<SetStateAction<Account[]>>
+  usageHistory: AccountUsageHistory
+  setUsageHistory: Dispatch<SetStateAction<AccountUsageHistory>>
+  activeId: string | null
+  setActiveId: Dispatch<SetStateAction<string | null>>
+  isRefreshing: boolean
+  refreshingIds: Set<string>
+  refreshAll: () => Promise<void>
+  handleRefreshOne: (account: Account) => Promise<Account>
+  lastUpdateAt: string | null
+  isLoaded: boolean
+}
+
 /**
- * 管理账户列表、刷新状态与本地持久化。
+ * 根据当前账号生成一条历史快照。
  *
- * @param lang 当前界面语言，会影响请求头中的语言参数。
- * @param refreshIntervalMinutes 后台自动刷新间隔，单位分钟。
+ * @param account 需要记录历史的账号。
  */
-export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalMinutes) {
+function createHistoryPoint(account: Account): AccountUsageHistoryPoint {
+  return {
+    timestamp: account.last_update || new Date().toISOString(),
+    usage5h: account.usage_5h,
+    usageWeek: account.usage_week,
+    status: account.status,
+  }
+}
+
+/**
+ * 将最新快照追加到历史记录中，并自动去重和裁剪。
+ *
+ * @param history 当前历史集合。
+ * @param account 已刷新完成的账号。
+ */
+function appendHistorySnapshot(
+  history: AccountUsageHistory,
+  account: Account,
+): AccountUsageHistory {
+  const nextPoint = createHistoryPoint(account)
+  const previousPoints = history[account.id] ?? []
+  const lastPoint = previousPoints.at(-1)
+
+  if (
+    lastPoint &&
+    lastPoint.usage5h === nextPoint.usage5h &&
+    lastPoint.usageWeek === nextPoint.usageWeek &&
+    lastPoint.status === nextPoint.status
+  ) {
+    return history
+  }
+
+  return {
+    ...history,
+    [account.id]: [...previousPoints, nextPoint].slice(-HISTORY_POINT_LIMIT),
+  }
+}
+
+/**
+ * 删除已经不在列表中的账号历史，避免备份和诊断面板持续堆积脏数据。
+ *
+ * @param history 当前历史集合。
+ * @param accounts 仍然存在的账号列表。
+ */
+function pruneUsageHistory(
+  history: AccountUsageHistory,
+  accounts: Account[],
+): AccountUsageHistory {
+  const validIds = new Set(accounts.map((account) => account.id))
+  const nextHistory: AccountUsageHistory = {}
+
+  Object.entries(history).forEach(([accountId, points]) => {
+    if (validIds.has(accountId)) {
+      nextHistory[accountId] = points
+    }
+  })
+
+  return nextHistory
+}
+
+/**
+ * 管理账户列表、刷新状态、历史快照与本地持久化。
+ *
+ * @param options 当前语言、刷新间隔和诊断日志回调。
+ */
+export function useAccounts({
+  lang,
+  refreshIntervalMinutes,
+  appendDiagnosticLog,
+}: UseAccountsOptions): UseAccountsResult {
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [usageHistory, setUsageHistory] = useState<AccountUsageHistory>({})
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -50,9 +146,10 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
 
     const init = async (): Promise<void> => {
       // 首次启动优先恢复本地缓存，避免界面在空态和真实数据之间闪动。
-      const [savedAccounts, savedActiveId] = await Promise.all([
+      const [savedAccounts, savedActiveId, savedUsageHistory] = await Promise.all([
         window.codexAPI.getAccounts(),
-        window.codexAPI.getActiveId()
+        window.codexAPI.getActiveId(),
+        window.codexAPI.getUsageHistory(),
       ])
 
       if (!mounted) {
@@ -65,6 +162,10 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
 
       if (savedActiveId) {
         setActiveId(savedActiveId)
+      }
+
+      if (savedUsageHistory) {
+        setUsageHistory(pruneUsageHistory(savedUsageHistory, savedAccounts ?? []))
       }
 
       setIsLoaded(true)
@@ -90,6 +191,12 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   }, [activeId, isLoaded])
 
   useEffect(() => {
+    if (isLoaded) {
+      void window.codexAPI.setUsageHistory(usageHistory)
+    }
+  }, [isLoaded, usageHistory])
+
+  useEffect(() => {
     if (!isLoaded || !activeId) {
       return
     }
@@ -100,6 +207,13 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     }
   }, [accounts, activeId, isLoaded])
 
+  useEffect(() => {
+    setUsageHistory((previous) => {
+      const nextHistory = pruneUsageHistory(previous, accounts)
+      return JSON.stringify(previous) === JSON.stringify(nextHistory) ? previous : nextHistory
+    })
+  }, [accounts])
+
   /**
    * 尝试用 refresh_token 换取新的 access_token。
    * 成功时返回含新 token 的账号对象，失败时返回 null。
@@ -108,10 +222,25 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     try {
       const result = await window.codexAPI.refreshToken(account)
       if (!result.success || !result.data) {
+        appendDiagnosticLog({
+          level: 'warning',
+          category: 'oauth',
+          message: `账号 ${account.email} 的会话续期失败，需要重新登录。`,
+          accountId: account.id,
+          email: account.email,
+        })
         return null
       }
 
       const tokenPayload = result.data as RefreshTokenPayload
+
+      appendDiagnosticLog({
+        level: 'info',
+        category: 'security',
+        message: `账号 ${account.email} 的访问令牌已自动续期。`,
+        accountId: account.id,
+        email: account.email,
+      })
 
       // 刷新接口可能只返回新的 access_token，缺失字段时保留旧值，避免把账号写成半失效状态。
       return {
@@ -121,9 +250,16 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
         id_token: tokenPayload.id_token || account.id_token,
       }
     } catch {
+      appendDiagnosticLog({
+        level: 'warning',
+        category: 'oauth',
+        message: `账号 ${account.email} 的会话续期请求失败。`,
+        accountId: account.id,
+        email: account.email,
+      })
       return null
     }
-  }, [])
+  }, [appendDiagnosticLog])
 
   /**
    * 当前激活账号的 token 在后台刷新后，同步写回 Codex 的 auth.json。
@@ -137,9 +273,39 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
 
     const result = await window.codexAPI.syncAccountAuth(account)
     if (!result.success) {
+      appendDiagnosticLog({
+        level: 'error',
+        category: 'security',
+        message: `当前激活账号 ${account.email} 的本地授权同步失败。`,
+        accountId: account.id,
+        email: account.email,
+      })
       console.error('Failed to sync active account auth:', result.error)
     }
-  }, [])
+  }, [appendDiagnosticLog])
+
+  /**
+   * 在刷新完成后记录关键状态变化，避免诊断面板被普通轮询刷屏。
+   *
+   * @param previous 刷新前账号。
+   * @param next 刷新后账号。
+   */
+  const trackAccountTransition = useCallback((previous: Account, next: Account): void => {
+    if (previous.status === next.status) {
+      return
+    }
+
+    appendDiagnosticLog({
+      level:
+        next.status === 'normal' || next.status === 'warning'
+          ? 'info'
+          : 'warning',
+      category: 'refresh',
+      message: `账号 ${next.email} 的状态已从 ${previous.status} 变为 ${next.status}。`,
+      accountId: next.id,
+      email: next.email,
+    })
+  }, [appendDiagnosticLog])
 
   /**
    * 刷新单个账户并回填最新状态。
@@ -161,8 +327,25 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       }
 
       if (!usageRes.success) {
-        if (usageRes.status === 401) return { ...workingAccount, status: 'expired' }
-        if (usageRes.status === 402 || usageRes.status === 403) return { ...workingAccount, status: 'disabled' }
+        if (usageRes.status === 401) {
+          const nextAccount = { ...workingAccount, status: 'expired' as const }
+          trackAccountTransition(account, nextAccount)
+          return nextAccount
+        }
+
+        if (usageRes.status === 402 || usageRes.status === 403) {
+          const nextAccount = { ...workingAccount, status: 'disabled' as const }
+          trackAccountTransition(account, nextAccount)
+          return nextAccount
+        }
+
+        appendDiagnosticLog({
+          level: 'warning',
+          category: 'refresh',
+          message: `账号 ${account.email} 的额度刷新失败，将保留上一次状态。`,
+          accountId: account.id,
+          email: account.email,
+        })
         return account
       }
 
@@ -194,7 +377,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       if (u5h >= 100 || u7d >= 100) status = 'exhausted'
       else if (u5h >= 80 || u7d >= 80) status = 'warning'
 
-      return {
+      const nextAccount: Account = {
         ...workingAccount,
         orgName,
         planType: plan_type || 'free',
@@ -203,12 +386,22 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
         reset_5h: rate_limit.primary_window?.reset_at,
         reset_week: rate_limit.secondary_window?.reset_at,
         status,
-        last_update: new Date().toISOString()
+        last_update: new Date().toISOString(),
       }
+
+      trackAccountTransition(account, nextAccount)
+      return nextAccount
     } catch {
+      appendDiagnosticLog({
+        level: 'warning',
+        category: 'refresh',
+        message: `账号 ${account.email} 的刷新请求发生异常。`,
+        accountId: account.id,
+        email: account.email,
+      })
       return account
     }
-  }, [lang, syncActiveAccountAuth, tryRefreshToken])
+  }, [appendDiagnosticLog, lang, syncActiveAccountAuth, trackAccountTransition, tryRefreshToken])
 
   useEffect(() => {
     const handleOAuthSuccess = async (tokenData: OAuthTokenPayload): Promise<void> => {
@@ -217,7 +410,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
       try {
         const payloadBase64 = tokenData.id_token.split('.')[1]
         const payloadJson = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')))
-        
+
         const newAccount: Account = {
           id: crypto.randomUUID(),
           accountId: payloadJson.sub || 'unknown',
@@ -230,23 +423,39 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
           usage_5h: 0,
           usage_week: 0,
           status: 'normal',
-          last_update: new Date().toISOString()
+          last_update: new Date().toISOString(),
         }
 
         const updatedAccount = await refreshOne(newAccount)
-        const existingAccount = accounts.find((account) => account.accountId === newAccount.accountId)
+        const existingAccount = accountsRef.current.find(
+          (account) => account.accountId === newAccount.accountId,
+        )
         const resolvedActiveId = existingAccount?.id ?? newAccount.id
 
-        setAccounts(prev => {
-          const exists = prev.find(a => a.accountId === newAccount.accountId)
+        setAccounts((previous) => {
+          const exists = previous.find((account) => account.accountId === newAccount.accountId)
           if (exists) {
-            return prev.map(a => a.accountId === newAccount.accountId ? { ...updatedAccount, id: a.id } : a)
+            return previous.map((account) =>
+              account.accountId === newAccount.accountId
+                ? { ...updatedAccount, id: account.id, last_switched_at: account.last_switched_at }
+                : account,
+            )
           }
-          return [updatedAccount, ...prev]
+
+          return [updatedAccount, ...previous]
         })
+        setUsageHistory((previous) => appendHistorySnapshot(previous, updatedAccount))
+        setActiveId((previous) => previous || resolvedActiveId)
 
-        setActiveId(prev => prev || resolvedActiveId)
-
+        appendDiagnosticLog({
+          level: 'info',
+          category: 'oauth',
+          message: existingAccount
+            ? `账号 ${updatedAccount.email} 已重新登录并更新。`
+            : `账号 ${updatedAccount.email} 已接入 CodexManager。`,
+          accountId: existingAccount?.id ?? updatedAccount.id,
+          email: updatedAccount.email,
+        })
       } catch (err) {
         console.error('Failed to handle oauth success:', err)
       }
@@ -255,7 +464,7 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     return window.codexAPI.onOAuthSuccess((payload) => {
       void handleOAuthSuccess(payload)
     })
-  }, [accounts, refreshOne])
+  }, [appendDiagnosticLog, refreshOne])
 
   /**
    * 外部调用：全量刷新。
@@ -279,6 +488,12 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
 
         // 只回填当前仍存在的账号，避免删除操作被并发刷新“写回来”。
         setAccounts((previous) => previous.map((item) => updatedMap.get(item.id) ?? item))
+        setUsageHistory((previous) => {
+          return updated.reduce(
+            (history, account) => appendHistorySnapshot(history, account),
+            previous,
+          )
+        })
       } finally {
         setIsRefreshing(false)
         refreshAllPromiseRef.current = null
@@ -322,25 +537,36 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
   /**
    * 外部调用：单点刷新。
    */
-  const handleRefreshOne = useCallback(async (account: Account): Promise<void> => {
+  const handleRefreshOne = useCallback(async (account: Account): Promise<Account> => {
     setRefreshingIds((previous) => {
       const next = new Set(previous)
       next.add(account.id)
       return next
     })
 
-    const updated = await refreshOne(account)
-    setAccounts((previous) => previous.map((item) => item.id === account.id ? updated : item))
-    setRefreshingIds((previous) => {
-      const next = new Set(previous)
-      next.delete(account.id)
-      return next
-    })
+    try {
+      const updated = await refreshOne(account)
+
+      setAccounts((previous) =>
+        previous.map((item) => (item.id === account.id ? updated : item)),
+      )
+      setUsageHistory((previous) => appendHistorySnapshot(previous, updated))
+
+      return updated
+    } finally {
+      setRefreshingIds((previous) => {
+        const next = new Set(previous)
+        next.delete(account.id)
+        return next
+      })
+    }
   }, [refreshOne])
 
   return {
     accounts,
     setAccounts,
+    usageHistory,
+    setUsageHistory,
     activeId,
     setActiveId,
     isRefreshing,
@@ -348,6 +574,6 @@ export function useAccounts(lang: Lang, refreshIntervalMinutes: RefreshIntervalM
     refreshAll,
     handleRefreshOne,
     lastUpdateAt,
-    isLoaded
+    isLoaded,
   }
 }

@@ -2,9 +2,11 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import * as Lucide from "lucide-react";
 
 import type { AppLocaleText } from "../constants/i18n";
-import type { Account } from "../types";
+import { UsageHistorySparkline } from "./UsageHistorySparkline";
+
+import type { Account, AccountUsageHistoryPoint } from "../types";
 import {
-  canAutoSwitchTo,
+  canManuallySwitchTo,
   clampUsage,
   getPlanTone,
   getShortAccountId,
@@ -14,11 +16,18 @@ import {
 
 interface Props {
   account: Account;
+  historyPoints: AccountUsageHistoryPoint[];
   isActive: boolean;
+  isPinned: boolean;
+  isExcludedFromAutoSwitch: boolean;
   isRefreshing: boolean;
+  isRepairing: boolean;
   isSwitching: boolean;
   onSwitch: (acc: Account) => void;
   onUnavailableSwitchAttempt: (acc: Account) => void;
+  onTogglePin: (acc: Account) => void;
+  onToggleExcludeAutoSwitch: (acc: Account) => void;
+  onRepair: (acc: Account) => void;
   onRefresh: (acc: Account) => void;
   onDelete: (acc: Account) => void;
   resetText: string;
@@ -32,11 +41,18 @@ interface Props {
  */
 export function AccountCard({
   account,
+  historyPoints,
   isActive,
+  isPinned,
+  isExcludedFromAutoSwitch,
   isRefreshing,
+  isRepairing,
   isSwitching,
   onSwitch,
   onUnavailableSwitchAttempt,
+  onTogglePin,
+  onToggleExcludeAutoSwitch,
+  onRepair,
   onRefresh,
   onDelete,
   resetText,
@@ -46,10 +62,15 @@ export function AccountCard({
 }: Props) {
   const statusTone = getStatusTone(account.status);
   const planTone = getPlanTone(account.planType || "free");
-  const isBusy = isRefreshing || isSwitching;
-  const canSwitchAccount = !isActive && !isSwitching && canAutoSwitchTo(account);
-  const canExplainUnavailable = !isActive && !isSwitching && !canAutoSwitchTo(account);
+  const isBusy = isRefreshing || isSwitching || isRepairing;
+  const canSwitchAccount = !isActive && !isSwitching && canManuallySwitchTo(account);
+  const canExplainUnavailable =
+    !isActive && !isSwitching && !canManuallySwitchTo(account);
   const canInteractWithCard = canSwitchAccount || canExplainUnavailable;
+  const shouldShowRepairAction =
+    account.status === "expired" ||
+    account.status === "disabled" ||
+    account.status === "exhausted";
 
   // 只有预警和耗尽状态才拼接重置文案，避免健康状态信息过载。
   const description =
@@ -113,60 +134,87 @@ export function AccountCard({
       onKeyDown={handleCardKeyDown}
     >
       <div className="account-card-top">
-        <div className="account-card-main">
-          <div className="account-title-row">
-            <h3 className="account-title">
-              {account.orgName || t.personalWorkspace}
-            </h3>
-            <span className={`plan-badge plan-badge--${planTone}`}>
-              {account.planType || "Free"}
-            </span>
-            {isActive && (
-              <span className="active-pill">
-                <Lucide.CheckCircle2 size={14} />
-                <span>{t.meta.current}</span>
-              </span>
-            )}
-          </div>
-
-          <div className="account-meta-row">
-            <span className={`status-pill status-pill--${statusTone}`}>
-              {t.status[account.status]}
-            </span>
-            <span className="account-id-pill">
-              {t.meta.accountId} · {getShortAccountId(account.accountId)}
-            </span>
+        <div className="account-title-row">
+          <h3 className="account-title">
+            {account.orgName || t.personalWorkspace}
+          </h3>
+          <span className={`plan-badge plan-badge--${planTone}`}>
+            {account.planType || "Free"}
+          </span>
+          <div className="account-icon-actions">
+            <button
+              className={`icon-button ${isPinned ? "is-active" : ""}`}
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event);
+                onTogglePin(account);
+              }}
+              title={isPinned ? t.actions.unpin : t.actions.pin}
+            >
+              {isPinned ? <Lucide.PinOff size={15} /> : <Lucide.Pin size={15} />}
+            </button>
+            <button
+              className={`icon-button ${isExcludedFromAutoSwitch ? "is-active" : ""}`}
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event);
+                onToggleExcludeAutoSwitch(account);
+              }}
+              title={
+                isExcludedFromAutoSwitch
+                  ? t.actions.includeAutoSwitch
+                  : t.actions.excludeAutoSwitch
+              }
+            >
+              {isExcludedFromAutoSwitch ? (
+                <Lucide.ShieldCheck size={15} />
+              ) : (
+                <Lucide.ShieldOff size={15} />
+              )}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event);
+                onRefresh(account);
+              }}
+              disabled={isBusy}
+              title={t.actions.refreshAll}
+            >
+              <Lucide.RefreshCw
+                size={15}
+                className={isRefreshing ? "spin" : ""}
+              />
+            </button>
+            <button
+              className="icon-button icon-button--danger"
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event);
+                onDelete(account);
+              }}
+              disabled={isSwitching}
+              title={t.actions.remove}
+            >
+              <Lucide.Trash2 size={15} />
+            </button>
           </div>
         </div>
 
-        <div className="account-icon-actions">
-          <button
-            className="icon-button"
-            type="button"
-            onClick={(event) => {
-              stopCardClick(event);
-              onRefresh(account);
-            }}
-            disabled={isBusy}
-            title={t.actions.refreshAll}
-          >
-            <Lucide.RefreshCw
-              size={16}
-              className={isRefreshing ? "spin" : ""}
-            />
-          </button>
-          <button
-            className="icon-button icon-button--danger"
-            type="button"
-            onClick={(event) => {
-              stopCardClick(event);
-              onDelete(account);
-            }}
-            disabled={isSwitching}
-            title={t.actions.remove}
-          >
-            <Lucide.Trash2 size={16} />
-          </button>
+        <div className="account-meta-row">
+          {isActive && (
+            <span className="active-pill">
+              <Lucide.CheckCircle2 size={13} />
+              <span>{t.meta.current}</span>
+            </span>
+          )}
+          <span className={`status-pill status-pill--${statusTone}`}>
+            {t.status[account.status]}
+          </span>
+          <span className="account-id-pill">
+            {t.meta.accountId} · {getShortAccountId(account.accountId)}
+          </span>
         </div>
       </div>
 
@@ -200,6 +248,41 @@ export function AccountCard({
             </div>
           );
         })}
+      </div>
+
+      <div className="account-insight-row">
+        <div className="account-trend">
+          <span className="account-trend-label">{t.history.recentTrend}</span>
+          <UsageHistorySparkline
+            emptyLabel={t.history.empty}
+            points={historyPoints}
+            title={t.history.recentTrend}
+          />
+        </div>
+
+        <div className="account-quick-actions">
+          {shouldShowRepairAction && (
+            <button
+              className="secondary-chip secondary-chip--accent secondary-chip--compact"
+              type="button"
+              onClick={(event) => {
+                stopCardClick(event);
+                onRepair(account);
+              }}
+              disabled={isBusy}
+              title={isRepairing ? t.actions.repairing : t.actions.repair}
+            >
+              <Lucide.Wrench size={13} />
+              <span>{isRepairing ? t.actions.repairing : t.actions.repair}</span>
+            </button>
+          )}
+          {isExcludedFromAutoSwitch && (
+            <span className="secondary-chip secondary-chip--compact secondary-chip--muted">
+              <Lucide.MinusCircle size={13} />
+              <span>{t.settings.excludedAccount}</span>
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="account-card-footer">

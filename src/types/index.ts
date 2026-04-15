@@ -9,6 +9,11 @@ export type AccountStatus = 'normal' | 'warning' | 'exhausted' | 'disabled' | 'e
 export type AccountFilter = 'all' | 'healthy' | 'attention'
 
 /**
+ * 列表排序策略。
+ */
+export type AccountSortKey = 'priority' | 'recent' | 'quota' | 'name'
+
+/**
  * 自动切换弹窗展示模式。
  */
 export type AutoSwitchDialogMode = 'confirm-switch' | 'no-available-account'
@@ -24,14 +29,161 @@ export type AutoSwitchCause = '5h' | '7d' | 'both'
 export const REFRESH_INTERVAL_OPTIONS = [1, 3, 5, 10, 15] as const
 
 /**
+ * 自动切换冷却时间支持的分钟档位。
+ */
+export const AUTO_SWITCH_COOLDOWN_OPTIONS = [0, 5, 10, 20, 30] as const
+
+/**
  * 后台自动刷新分钟数。
  */
 export type RefreshIntervalMinutes = (typeof REFRESH_INTERVAL_OPTIONS)[number]
 
 /**
+ * 自动切换冷却分钟数。
+ */
+export type AutoSwitchCooldownMinutes = (typeof AUTO_SWITCH_COOLDOWN_OPTIONS)[number]
+
+/**
  * 界面语言。
  */
 export type Lang = 'EN' | 'ZH'
+
+/**
+ * 系统通知的业务分类，用于统一走静默时段和开关配置。
+ */
+export type NotificationKind =
+  | 'autoSwitchConfirm'
+  | 'autoSwitchUnavailable'
+  | 'switchSuccess'
+  | 'oauthError'
+
+/**
+ * 通知偏好配置。
+ */
+export interface NotificationSettings {
+  autoSwitchConfirm: boolean
+  autoSwitchUnavailable: boolean
+  switchSuccess: boolean
+  oauthError: boolean
+  quietHoursEnabled: boolean
+  quietHoursStart: string
+  quietHoursEnd: string
+}
+
+/**
+ * 自动切换策略配置。
+ */
+export interface AutoSwitchStrategy {
+  minRemaining5h: number
+  minRemaining7d: number
+  cooldownMinutes: AutoSwitchCooldownMinutes
+  excludedAccountIds: string[]
+}
+
+/**
+ * 账号额度历史快照点。
+ */
+export interface AccountUsageHistoryPoint {
+  timestamp: string
+  usage5h: number
+  usageWeek: number
+  status: AccountStatus
+}
+
+/**
+ * 账号历史快照表。
+ */
+export type AccountUsageHistory = Record<string, AccountUsageHistoryPoint[]>
+
+/**
+ * 诊断日志级别。
+ */
+export type DiagnosticLogLevel = 'info' | 'warning' | 'error'
+
+/**
+ * 诊断日志分类。
+ */
+export type DiagnosticLogCategory =
+  | 'refresh'
+  | 'switch'
+  | 'oauth'
+  | 'notification'
+  | 'repair'
+  | 'backup'
+  | 'security'
+  | 'settings'
+
+/**
+ * 可持久化的诊断日志项。
+ */
+export interface DiagnosticLogEntry {
+  id: string
+  timestamp: string
+  level: DiagnosticLogLevel
+  category: DiagnosticLogCategory
+  message: string
+  accountId?: string
+  email?: string
+}
+
+/**
+ * 新增诊断日志时允许省略的系统字段。
+ */
+export interface DiagnosticLogInput extends Omit<DiagnosticLogEntry, 'id' | 'timestamp'> {
+  id?: string
+  timestamp?: string
+}
+
+/**
+ * 导入导出时使用的备份结构。
+ */
+export interface AppBackupPayload {
+  version: number
+  exportedAt: string
+  data: {
+    accounts: Account[]
+    activeId: string | null
+    lang: Lang
+    skipAutoSwitchConfirm: boolean
+    refreshIntervalMinutes: RefreshIntervalMinutes
+    autoSwitchStrategy: AutoSwitchStrategy
+    notificationSettings: NotificationSettings
+    pinnedAccountIds: string[]
+    usageHistory: AccountUsageHistory
+    diagnosticLogs: DiagnosticLogEntry[]
+  }
+}
+
+/**
+ * 安全存储能力状态。
+ */
+export interface SecureStorageStatus {
+  available: boolean
+  mode: 'safe-storage' | 'base64-fallback'
+}
+
+/**
+ * 自动切换策略默认值。
+ */
+export const DEFAULT_AUTO_SWITCH_STRATEGY: AutoSwitchStrategy = {
+  minRemaining5h: 5,
+  minRemaining7d: 10,
+  cooldownMinutes: 10,
+  excludedAccountIds: [],
+}
+
+/**
+ * 通知配置默认值。
+ */
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  autoSwitchConfirm: true,
+  autoSwitchUnavailable: true,
+  switchSuccess: true,
+  oauthError: true,
+  quietHoursEnabled: false,
+  quietHoursStart: '23:00',
+  quietHoursEnd: '08:00',
+}
 
 /**
  * 主进程代理请求的入参。
@@ -108,6 +260,7 @@ export interface Account {
   reset_week?: number
   status: AccountStatus
   last_update: string
+  last_switched_at?: string
 }
 
 /**
@@ -161,9 +314,22 @@ export interface CodexAPI {
   setSkipAutoSwitchConfirm: (value: boolean) => Promise<void>
   getRefreshIntervalMinutes: () => Promise<number | undefined>
   setRefreshIntervalMinutes: (value: RefreshIntervalMinutes) => Promise<void>
+  getAutoSwitchStrategy: () => Promise<AutoSwitchStrategy | undefined>
+  setAutoSwitchStrategy: (value: AutoSwitchStrategy) => Promise<void>
+  getNotificationSettings: () => Promise<NotificationSettings | undefined>
+  setNotificationSettings: (value: NotificationSettings) => Promise<void>
+  getPinnedAccountIds: () => Promise<string[] | undefined>
+  setPinnedAccountIds: (value: string[]) => Promise<void>
+  getUsageHistory: () => Promise<AccountUsageHistory | undefined>
+  setUsageHistory: (value: AccountUsageHistory) => Promise<void>
+  getDiagnosticLogs: () => Promise<DiagnosticLogEntry[] | undefined>
+  setDiagnosticLogs: (value: DiagnosticLogEntry[]) => Promise<void>
+  getSecureStorageStatus: () => Promise<SecureStorageStatus>
   switchAccount: (account: Account) => Promise<SwitchAccountResult>
   syncAccountAuth: (account: Account) => Promise<SwitchAccountResult>
   refreshToken: (account: Account) => Promise<ProxyResponse<RefreshTokenPayload>>
+  exportAppBackup: (payload: AppBackupPayload) => Promise<SwitchAccountResult>
+  importAppBackup: () => Promise<ProxyResponse<AppBackupPayload>>
   startOAuth: () => void
   quitApp: () => void
   showSystemNotification: (payload: SystemNotificationPayload) => void

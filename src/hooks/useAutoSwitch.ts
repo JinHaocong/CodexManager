@@ -3,8 +3,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppLocaleText } from '../constants/i18n'
 import type {
   Account,
+  AutoSwitchStrategy,
   AutoSwitchCause,
   AutoSwitchDialogMode,
+  DiagnosticLogInput,
+  NotificationKind,
   SystemNotificationIntent,
 } from '../types'
 import {
@@ -20,11 +23,18 @@ interface UseAutoSwitchOptions {
   activeAccount: Account | null
   activeId: string | null
   preferencesReady: boolean
+  autoSwitchStrategy: AutoSwitchStrategy
+  pinnedAccountIds: string[]
   skipAutoSwitchConfirm: boolean
   setSkipAutoSwitchConfirm: (value: boolean) => void
   handleSwitchAccount: (account: Account) => Promise<boolean>
-  canUseSystemNotifications: () => boolean
-  showSystemNotification: (title: string, body: string, intent: SystemNotificationIntent) => void
+  appendDiagnosticLog: (entry: DiagnosticLogInput) => void
+  showSystemNotification: (
+    kind: NotificationKind,
+    title: string,
+    body: string,
+    intent: SystemNotificationIntent,
+  ) => boolean
   getAccountDisplayName: (account: Account | null) => string
   t: AppLocaleText
 }
@@ -102,10 +112,12 @@ export function useAutoSwitch({
   activeAccount,
   activeId,
   preferencesReady,
+  autoSwitchStrategy,
+  pinnedAccountIds,
   skipAutoSwitchConfirm,
   setSkipAutoSwitchConfirm,
   handleSwitchAccount,
-  canUseSystemNotifications,
+  appendDiagnosticLog,
   showSystemNotification,
   getAccountDisplayName,
   t,
@@ -119,8 +131,14 @@ export function useAutoSwitch({
   }, [activeAccount])
 
   const nextAvailableAccount = useMemo(() => {
-    return findNextAvailableAccount(accounts, activeId, autoSwitchCause)
-  }, [accounts, activeId, autoSwitchCause])
+    return findNextAvailableAccount(
+      accounts,
+      activeId,
+      autoSwitchCause,
+      autoSwitchStrategy,
+      pinnedAccountIds,
+    )
+  }, [accounts, activeId, autoSwitchCause, autoSwitchStrategy, pinnedAccountIds])
 
   /**
    * 签名只关联「当前激活账号 + 耗尽原因 + 下一候选账号」三个维度。
@@ -138,14 +156,22 @@ export function useAutoSwitch({
    */
   const notifyAutoSwitchSuccess = useCallback(
     (account: Account): void => {
-      if (!canUseSystemNotifications()) return
       showSystemNotification(
+        'switchSuccess',
         t.autoSwitch.switchedTitle,
         t.autoSwitch.switchedDescription(getAccountDisplayName(account)),
         'show-window',
       )
+
+      appendDiagnosticLog({
+        level: 'info',
+        category: 'switch',
+        message: `应用已切换到账号 ${account.email}。`,
+        accountId: account.id,
+        email: account.email,
+      })
     },
-    [canUseSystemNotifications, getAccountDisplayName, showSystemNotification, t.autoSwitch],
+    [appendDiagnosticLog, getAccountDisplayName, showSystemNotification, t.autoSwitch],
   )
 
   /**
@@ -174,24 +200,29 @@ export function useAutoSwitch({
           const switched = await handleSwitchAccount(nextAvailableAccount)
           if (switched) {
             notifyAutoSwitchSuccess(nextAvailableAccount)
+          } else {
+            appendDiagnosticLog({
+              level: 'warning',
+              category: 'switch',
+              message: `自动切换到账号 ${nextAvailableAccount.email} 失败。`,
+              accountId: nextAvailableAccount.id,
+              email: nextAvailableAccount.email,
+            })
           }
         })()
         return
       }
 
       setRememberAutoSwitchChoice(false)
-      if (!canUseSystemNotifications()) {
-        setAutoSwitchDialogMode('confirm-switch')
-        return
-      }
-
       if (shouldSuppressAutoSwitchNotification(autoSwitchSignature)) {
         return
       }
 
       markAutoSwitchNotification(autoSwitchSignature)
       setAutoSwitchDialogMode(null)
-      showSystemNotification(
+
+      const shown = showSystemNotification(
+        'autoSwitchConfirm',
         t.autoSwitch.confirmTitle,
         t.autoSwitch.confirmDescription(
           getAccountDisplayName(activeAccount),
@@ -200,22 +231,34 @@ export function useAutoSwitch({
         ),
         'open-auto-switch-dialog',
       )
+
+      appendDiagnosticLog({
+        level: 'warning',
+        category: 'notification',
+        message: shown
+          ? `已向系统发送自动切换确认提醒，候选账号为 ${nextAvailableAccount.email}。`
+          : `当前账号额度耗尽，已回退到应用内确认弹窗。`,
+        accountId: activeAccount.id,
+        email: activeAccount.email,
+      })
+
+      if (!shown) {
+        setAutoSwitchDialogMode('confirm-switch')
+      }
+
       return
     }
 
     setRememberAutoSwitchChoice(false)
-    if (!canUseSystemNotifications()) {
-      setAutoSwitchDialogMode('no-available-account')
-      return
-    }
-
     if (shouldSuppressAutoSwitchNotification(autoSwitchSignature)) {
       return
     }
 
     markAutoSwitchNotification(autoSwitchSignature)
     setAutoSwitchDialogMode(null)
-    showSystemNotification(
+
+    const shown = showSystemNotification(
+      'autoSwitchUnavailable',
       t.autoSwitch.noAvailableTitle,
       t.autoSwitch.noAvailableDescription(
         getAccountDisplayName(activeAccount),
@@ -223,16 +266,32 @@ export function useAutoSwitch({
       ),
       'show-window',
     )
+
+    appendDiagnosticLog({
+      level: 'warning',
+      category: 'notification',
+      message: shown
+        ? `已提醒当前账号 ${activeAccount.email} 无可用候选账号可切换。`
+        : `当前账号 ${activeAccount.email} 无可用候选账号，已在应用内展示提示。`,
+      accountId: activeAccount.id,
+      email: activeAccount.email,
+    })
+
+    if (!shown) {
+      setAutoSwitchDialogMode('no-available-account')
+    }
   }, [
     activeAccount,
+    appendDiagnosticLog,
     autoSwitchCause,
     autoSwitchSignature,
-    canUseSystemNotifications,
     getAccountDisplayName,
     handleSwitchAccount,
     handledAutoSwitchSignature,
     nextAvailableAccount,
     notifyAutoSwitchSuccess,
+    autoSwitchStrategy,
+    pinnedAccountIds,
     preferencesReady,
     showSystemNotification,
     skipAutoSwitchConfirm,
@@ -277,11 +336,20 @@ export function useAutoSwitch({
       const switched = await handleSwitchAccount(nextAvailableAccount)
       if (switched) {
         notifyAutoSwitchSuccess(nextAvailableAccount)
+      } else {
+        appendDiagnosticLog({
+          level: 'warning',
+          category: 'switch',
+          message: `确认后切换到账号 ${nextAvailableAccount.email} 失败。`,
+          accountId: nextAvailableAccount.id,
+          email: nextAvailableAccount.email,
+        })
       }
       return
     }
     setAutoSwitchDialogMode(null)
   }, [
+    appendDiagnosticLog,
     autoSwitchDialogMode,
     handleSwitchAccount,
     nextAvailableAccount,

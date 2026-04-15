@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, globalShortcut } from 'electron'
 import path from 'node:path'
 import { APP_CONFIG, getAssetPath } from './constants'
 import { registerIpcHandlers } from './ipc-handlers'
@@ -30,12 +30,18 @@ async function createWindow() {
   // 开发环境加载 Vite Server，生产环境加载静态文件
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)
+    // 开发环境自动打开 DevTools
+    win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  // 失去焦点自动隐藏
-  win.on('blur', () => win?.hide())
+  // 失去焦点自动隐藏（DevTools 获焦时不隐藏主窗口）
+  win.on('blur', () => {
+    if (!win?.webContents.isDevToolsOpened()) {
+      win?.hide()
+    }
+  })
 
   trayManager = new TrayManager(win)
   trayManager.init()
@@ -56,9 +62,17 @@ app.whenReady().then(() => {
     updateTrayMenuLang: (lang) => trayManager?.updateMenuLang(lang),
   })
   createWindow()
+
+  // 开发环境注册 F12 快捷键切换 DevTools
+  if (process.env.VITE_DEV_SERVER_URL) {
+    globalShortcut.register('F12', () => {
+      win?.webContents.toggleDevTools()
+    })
+  }
 })
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll()
   trayManager?.destroy()
 })
 
