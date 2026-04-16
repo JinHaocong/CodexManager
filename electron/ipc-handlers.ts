@@ -1,5 +1,6 @@
 import { ipcMain, app, BrowserWindow, Notification, dialog } from 'electron'
 import axios from 'axios'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import querystring from 'node:querystring'
@@ -107,14 +108,109 @@ function persistCodexAuth(account: Account): void {
 }
 
 /**
- * 复用 Electron 自带的重启能力，避免依赖固定安装路径。
+ * Promise 版 execFile，便于串联“退出应用 -> 等待进程退出 -> 重新打开”。
+ *
+ * @param file 可执行文件名。
+ * @param args 传给命令的参数数组。
  */
-function scheduleRelaunch(): void {
-  // 延迟退出当前实例，给渲染层留出处理成功反馈和系统通知的时间窗口。
-  setTimeout(() => {
-    app.relaunch()
-    app.exit(0)
-  }, 200)
+function execFileAsync(file: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, (error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+/**
+ * 简单延迟，给 macOS 应用关闭和重启留出过渡时间。
+ *
+ * @param ms 需要等待的毫秒数。
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+/**
+ * 检查指定进程是否仍在运行。
+ *
+ * @param processName 进程名，例如 `Codex`。
+ */
+async function isProcessRunning(processName: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('pgrep', ['-x', processName], (error, stdout) => {
+      if (error) {
+        resolve(false)
+        return
+      }
+
+      resolve(Boolean(stdout.trim()))
+    })
+  })
+}
+
+/**
+ * 等待目标进程退出，避免在原实例尚未关闭时直接 reopen 导致“看起来没重启”。
+ *
+ * @param processName 需要等待退出的进程名。
+ * @param timeoutMs 最长等待时间。
+ */
+async function waitForProcessExit(
+  processName: string,
+  timeoutMs = 4000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const running = await isProcessRunning(processName)
+
+    if (!running) {
+      return
+    }
+
+    await delay(150)
+  }
+}
+
+/**
+ * 定位本机已安装的 Codex 应用路径。
+ */
+function resolveCodexAppPath(): string {
+  const matchedPath = APP_CONFIG.CODEX_APP_PATH_CANDIDATES.find((candidate) =>
+    fs.existsSync(candidate),
+  )
+
+  if (!matchedPath) {
+    throw new Error('未找到 Codex.app，请确认 Codex 已安装到 /Applications。')
+  }
+
+  return matchedPath
+}
+
+/**
+ * 退出并重新打开真正的 Codex 应用，让刚写入的 auth.json 立即生效。
+ */
+async function restartCodexDesktop(): Promise<void> {
+  const codexAppPath = resolveCodexAppPath()
+
+  try {
+    await execFileAsync('osascript', [
+      '-e',
+      `tell application "${APP_CONFIG.CODEX_APP_NAME}" to quit`,
+    ])
+  } catch {
+    // Codex 未运行时 osascript 会报错，这种场景直接继续打开即可。
+  }
+
+  await waitForProcessExit(APP_CONFIG.CODEX_APP_NAME)
+  await delay(250)
+  await execFileAsync('open', ['-a', codexAppPath])
 }
 
 /**
@@ -337,7 +433,7 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
   ipcMain.handle('switch-account', async (_, account: Account) => {
     try {
       persistCodexAuth(account)
-      scheduleRelaunch()
+      await restartCodexDesktop()
       return { success: true }
     } catch (err: any) {
       return { success: false, error: err.message }
