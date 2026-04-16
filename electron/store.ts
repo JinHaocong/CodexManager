@@ -25,6 +25,7 @@ interface StoreSchema {
   accounts: string | Account[]
   activeId: string | null
   lang: Lang
+  launchAtLoginEnabled: boolean
   skipAutoSwitchConfirm: boolean
   refreshIntervalMinutes: number
   autoSwitchStrategy: AutoSwitchStrategy
@@ -42,6 +43,7 @@ const store = new Store<StoreSchema>({
     accounts: [],
     activeId: null,
     lang: 'EN',
+    launchAtLoginEnabled: false,
     skipAutoSwitchConfirm: false,
     refreshIntervalMinutes: 3,
     autoSwitchStrategy: DEFAULT_AUTO_SWITCH_STRATEGY,

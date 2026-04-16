@@ -31,10 +31,45 @@ const STATUS_PRIORITY: Record<AccountStatus, number> = {
 }
 
 /**
- * 将用量值限制在 0-100 区间，避免异常数据撑破进度条。
+ * 将原始用量限制在 0-100 区间，保留小数精度供阈值判断使用。
+ *
+ * @param value 原始用量百分比。
+ */
+export function normalizeUsage(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.max(0, Math.min(100, value))
+}
+
+/**
+ * 判断额度是否应视为“已耗尽”。
+ *
+ * 接口偶尔会返回 `99.x`，但实际已经无法继续使用，因此这里统一按 `>= 99`
+ * 处理，保持展示、状态和自动切换逻辑一致。
+ *
+ * @param value 原始用量百分比。
+ */
+export function isUsageExhausted(value: number): boolean {
+  return normalizeUsage(value) >= 99
+}
+
+/**
+ * 将用量值转成用于界面展示的整数百分比。
+ *
+ * 当接口已接近耗尽阈值时，直接展示为 `100%`，避免出现“显示 99 但实际已耗尽”的误导。
+ *
+ * @param value 原始用量百分比。
  */
 export function clampUsage(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value)))
+  const normalizedValue = normalizeUsage(value)
+
+  if (isUsageExhausted(normalizedValue)) {
+    return 100
+  }
+
+  return Math.round(normalizedValue)
 }
 
 /**
@@ -48,7 +83,7 @@ export function getRemainingQuota(
   window: '5h' | '7d',
 ): number {
   const usage = window === '7d' ? account.usage_week : account.usage_5h
-  return Math.max(0, 100 - clampUsage(usage))
+  return Math.max(0, 100 - normalizeUsage(usage))
 }
 
 /**
@@ -149,8 +184,8 @@ export function getUsageTone(value: number): 'healthy' | 'warning' | 'danger' {
  * 判断当前账号是由哪个额度窗口触发自动切换。
  */
 export function getAutoSwitchCause(account: Account): AutoSwitchCause | null {
-  const isShortWindowExhausted = clampUsage(account.usage_5h) >= 100
-  const isLongWindowExhausted = clampUsage(account.usage_week) >= 100
+  const isShortWindowExhausted = isUsageExhausted(account.usage_5h)
+  const isLongWindowExhausted = isUsageExhausted(account.usage_week)
 
   if (isShortWindowExhausted && isLongWindowExhausted) {
     return 'both'
@@ -195,8 +230,8 @@ export function isInAutoSwitchCooldown(
  */
 export function canManuallySwitchTo(account: Account): boolean {
   return (
-    clampUsage(account.usage_5h) < 100 &&
-    clampUsage(account.usage_week) < 100 &&
+    !isUsageExhausted(account.usage_5h) &&
+    !isUsageExhausted(account.usage_week) &&
     account.status !== 'disabled' &&
     account.status !== 'expired'
   )

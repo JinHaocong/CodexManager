@@ -71,6 +71,10 @@ const api: CodexAPI = {
   setActiveId: (id: string | null) => ipcRenderer.invoke('set-active-id', id) as Promise<void>,
   getLang: () => ipcRenderer.invoke('get-lang') as Promise<Lang | undefined>,
   setLang: (lang: Lang) => ipcRenderer.invoke('set-lang', lang) as Promise<void>,
+  getLaunchAtLoginEnabled: () => ipcRenderer.invoke('get-launch-at-login-enabled') as Promise<boolean | undefined>,
+  setLaunchAtLoginEnabled: (value: boolean) => {
+    return ipcRenderer.invoke('set-launch-at-login-enabled', value) as Promise<void>
+  },
   getSkipAutoSwitchConfirm: () => ipcRenderer.invoke('get-skip-auto-switch-confirm') as Promise<boolean | undefined>,
   setSkipAutoSwitchConfirm: (value: boolean) => {
     return ipcRenderer.invoke('set-skip-auto-switch-confirm', value) as Promise<void>

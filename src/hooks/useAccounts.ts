@@ -12,7 +12,7 @@ import type {
   RefreshIntervalMinutes,
   RefreshTokenPayload,
 } from '../types'
-import { getLatestUpdateAt } from '../utils/account-display'
+import { getLatestUpdateAt, isUsageExhausted } from '../utils/account-display'
 
 const HISTORY_POINT_LIMIT = 24
 
@@ -374,7 +374,7 @@ export function useAccounts({
 
       let status: Account['status'] = 'normal'
       // 优先标记真正不可用的状态，再处理接近阈值的预警态。
-      if (u5h >= 100 || u7d >= 100) status = 'exhausted'
+      if (isUsageExhausted(u5h) || isUsageExhausted(u7d)) status = 'exhausted'
       else if (u5h >= 80 || u7d >= 80) status = 'warning'
 
       const nextAccount: Account = {

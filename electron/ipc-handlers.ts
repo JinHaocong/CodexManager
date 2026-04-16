@@ -32,6 +32,7 @@ import { OAuthService } from './oauth-service'
 const oauthService = new OAuthService()
 const OPEN_AUTO_SWITCH_DIALOG_EVENT = 'open-auto-switch-dialog'
 const BACKUP_VERSION = 1
+const LOGIN_ITEM_SUPPORTED_PLATFORMS = new Set(['darwin', 'win32'])
 
 interface RegisterIpcHandlersOptions {
   getMainWindow: () => BrowserWindow | null
@@ -271,6 +272,71 @@ function normalizeRefreshInterval(value: unknown): RefreshIntervalMinutes {
 }
 
 /**
+ * 判断当前运行平台是否支持 Electron 开机自启能力。
+ */
+function supportsLaunchAtLogin(): boolean {
+  return LOGIN_ITEM_SUPPORTED_PLATFORMS.has(process.platform)
+}
+
+/**
+ * 规范化开机自启开关值，避免外部写入脏数据。
+ *
+ * @param value 原始值。
+ */
+function normalizeLaunchAtLoginEnabled(value: unknown): boolean {
+  return Boolean(value)
+}
+
+/**
+ * 开发环境下给 Electron 可执行文件补充参数，保证开机自启指向当前应用入口。
+ */
+function getLaunchAtLoginArgs(): string[] {
+  if (app.isPackaged) {
+    return []
+  }
+
+  const appEntry = process.argv[1]
+  return appEntry ? [path.resolve(appEntry)] : []
+}
+
+/**
+ * 将当前偏好同步到系统的登录项配置。
+ *
+ * @param enabled 是否启用开机自启。
+ */
+function applyLaunchAtLoginPreference(enabled: boolean): void {
+  if (!supportsLaunchAtLogin()) {
+    return
+  }
+
+  const loginItemArgs = getLaunchAtLoginArgs()
+
+  if (process.platform === 'darwin') {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      openAsHidden: true,
+      ...(app.isPackaged
+        ? {}
+        : {
+            path: process.execPath,
+            args: loginItemArgs,
+          }),
+    })
+    return
+  }
+
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    ...(app.isPackaged
+      ? {}
+      : {
+          path: process.execPath,
+          args: loginItemArgs,
+        }),
+  })
+}
+
+/**
  * 对自动切换策略做兜底规范化。
  *
  * @param value 原始策略配置。
@@ -375,6 +441,7 @@ function normalizeBackupPayload(payload: unknown): AppBackupPayload | null {
       accounts: Array.isArray(data.accounts) ? (data.accounts as Account[]) : [],
       activeId: typeof data.activeId === 'string' || data.activeId === null ? data.activeId : null,
       lang: data.lang === 'ZH' ? 'ZH' : 'EN',
+      launchAtLoginEnabled: normalizeLaunchAtLoginEnabled(data.launchAtLoginEnabled),
       skipAutoSwitchConfirm: Boolean(data.skipAutoSwitchConfirm),
       refreshIntervalMinutes: normalizeRefreshInterval(data.refreshIntervalMinutes),
       autoSwitchStrategy: normalizeAutoSwitchStrategy(data.autoSwitchStrategy),
@@ -390,6 +457,9 @@ function normalizeBackupPayload(payload: unknown): AppBackupPayload | null {
  * 注册所有 IPC 事件处理器。
  */
 export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuLang }: RegisterIpcHandlersOptions) {
+  // 启动时根据本地偏好同步一次系统登录项，确保外部升级或迁移后状态仍一致。
+  applyLaunchAtLoginPreference(normalizeLaunchAtLoginEnabled(store.get('launchAtLoginEnabled')))
+
   // 1. 代理请求 (绕过 Header 限制)
   ipcMain.handle('proxy-request', async (_, { url, headers }: ProxyRequestPayload) => {
     try {
@@ -412,6 +482,14 @@ export function registerIpcHandlers({ getMainWindow, showWindow, updateTrayMenuL
     store.set('lang', lang)
     // 语言变更时同步更新托盘菜单文案。
     updateTrayMenuLang?.(lang as 'EN' | 'ZH')
+  })
+  ipcMain.handle('get-launch-at-login-enabled', () => {
+    return normalizeLaunchAtLoginEnabled(store.get('launchAtLoginEnabled'))
+  })
+  ipcMain.handle('set-launch-at-login-enabled', (_, value) => {
+    const normalizedValue = normalizeLaunchAtLoginEnabled(value)
+    store.set('launchAtLoginEnabled', normalizedValue)
+    applyLaunchAtLoginPreference(normalizedValue)
   })
   ipcMain.handle('get-skip-auto-switch-confirm', () => store.get('skipAutoSwitchConfirm'))
   ipcMain.handle('set-skip-auto-switch-confirm', (_, value) => store.set('skipAutoSwitchConfirm', value))

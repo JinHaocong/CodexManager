@@ -17,6 +17,7 @@ type SettingsSection = 'strategy' | 'notifications' | 'backup' | 'security'
 
 interface Props {
   autoSwitchStrategy: AutoSwitchStrategy
+  launchAtLoginEnabled: boolean
   notificationSettings: NotificationSettings
   refreshIntervalMinutes: RefreshIntervalMinutes
   secureStorageStatus: SecureStorageStatus
@@ -34,6 +35,7 @@ interface Props {
   ) => void
   onExport: () => void
   onImport: () => void
+  onLaunchAtLoginChange: (value: boolean) => void
   translations: AppLocaleText
 }
 
@@ -42,6 +44,7 @@ interface Props {
  */
 export function SettingsPanel({
   autoSwitchStrategy,
+  launchAtLoginEnabled,
   notificationSettings,
   refreshIntervalMinutes,
   secureStorageStatus,
@@ -56,6 +59,7 @@ export function SettingsPanel({
   onNotificationChange,
   onExport,
   onImport,
+  onLaunchAtLoginChange,
   translations: t,
 }: Props) {
   const showStrategy = sections.includes('strategy')
@@ -170,6 +174,8 @@ export function SettingsPanel({
                 </select>
               </label>
             </div>
+
+            <p className="settings-field-hint">{t.settings.candidateQuotaHint}</p>
 
             <label className="settings-switch settings-switch--card">
               <input
@@ -292,6 +298,19 @@ export function SettingsPanel({
                   : t.settings.secureStorageFallback}
               </p>
             </div>
+
+            <label className="settings-switch settings-switch--card">
+              <input
+                type="checkbox"
+                checked={launchAtLoginEnabled}
+                onChange={(event) =>
+                  onLaunchAtLoginChange(event.target.checked)
+                }
+              />
+              <span>{t.settings.launchAtLogin}</span>
+            </label>
+
+            <p className="settings-hint">{t.settings.launchAtLoginHint}</p>
           </section>
         )}
       </div>

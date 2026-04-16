@@ -94,6 +94,7 @@ export interface AppLocaleText {
     refreshIntervalOption: (value: RefreshIntervalMinutes) => string
     minRemaining5h: string
     minRemaining7d: string
+    candidateQuotaHint: string
     cooldown: string
     cooldownOption: (value: AutoSwitchCooldownMinutes) => string
     skipConfirm: string
@@ -104,6 +105,8 @@ export interface AppLocaleText {
     pinnedCount: (count: number) => string
     excludedCount: (count: number) => string
     excludedAccount: string
+    launchAtLogin: string
+    launchAtLoginHint: string
     secureStorageEnabled: string
     secureStorageFallback: string
     importConfirm: string
@@ -262,18 +265,21 @@ export const translations = {
       securitySection: 'Security',
       refreshInterval: 'Auto refresh',
       refreshIntervalOption: (value: RefreshIntervalMinutes) => `${value} min`,
-      minRemaining5h: 'Keep at least 5-hour quota',
-      minRemaining7d: 'Keep at least 7-day quota',
+      minRemaining5h: 'Candidate keeps 5-hour quota',
+      minRemaining7d: 'Candidate keeps 7-day quota',
+      candidateQuotaHint: 'These thresholds only filter which account can be chosen as the auto-switch target. They do not switch the current account early.',
       cooldown: 'Switch cooldown',
       cooldownOption: (value: AutoSwitchCooldownMinutes) => value === 0 ? 'No cooldown' : `${value} min`,
       skipConfirm: 'Skip confirmation when a better account is available',
       quietHours: 'Quiet hours',
       quietHoursStart: 'Starts',
       quietHoursEnd: 'Ends',
-      strategyHint: 'Pins affect priority, and excluded accounts stay available for manual switching but won’t be chosen automatically.',
+      strategyHint: 'Pins affect priority, excluded accounts stay available for manual switching, and the quota thresholds only filter auto-switch candidates.',
       pinnedCount: (count: number) => `${count} pinned`,
       excludedCount: (count: number) => `${count} excluded`,
       excludedAccount: 'Excluded from auto switch',
+      launchAtLogin: 'Launch at login',
+      launchAtLoginHint: 'After macOS signs in, CodexManager will start automatically and stay available in the menu bar.',
       secureStorageEnabled: 'Sensitive account tokens are encrypted with the system secure storage.',
       secureStorageFallback: 'System secure storage is unavailable, so tokens fall back to base64 obfuscation.',
       importConfirm: 'Importing a backup will replace current local settings. Continue?'
@@ -458,18 +464,21 @@ export const translations = {
       securitySection: '本地数据安全',
       refreshInterval: '自动刷新',
       refreshIntervalOption: (value: RefreshIntervalMinutes) => `${value} 分钟`,
-      minRemaining5h: '至少保留 5 小时额度',
-      minRemaining7d: '至少保留 7 天额度',
+      minRemaining5h: '候选账号至少保留 5 小时额度',
+      minRemaining7d: '候选账号至少保留 7 天额度',
+      candidateQuotaHint: '这两个阈值只用于筛选自动切换时的目标账号，不会因为当前账号低于这个值就提前切换。',
       cooldown: '自动切换冷却时间',
       cooldownOption: (value: AutoSwitchCooldownMinutes) => value === 0 ? '不限制' : `${value} 分钟`,
       skipConfirm: '有更优账号时直接自动切换，不再确认',
       quietHours: '系统通知静默时段',
       quietHoursStart: '开始时间',
       quietHoursEnd: '结束时间',
-      strategyHint: '置顶会影响自动切换优先级，被排除的账号仍可手动切换，但不会被后台自动选中。',
+      strategyHint: '置顶会影响自动切换优先级，被排除的账号仍可手动切换；这里的额度阈值只会筛选候选账号，不会让当前账号提前触发切换。',
       pinnedCount: (count: number) => `已置顶 ${count} 个`,
       excludedCount: (count: number) => `已排除 ${count} 个`,
       excludedAccount: '已排除自动切换',
+      launchAtLogin: '开机自启',
+      launchAtLoginHint: '启用后，macOS 登录完成时会自动启动 CodexManager，并以菜单栏应用的方式常驻。',
       secureStorageEnabled: '敏感账号令牌会使用系统安全存储进行加密。',
       secureStorageFallback: '当前系统安全存储不可用，令牌会退化为 base64 混淆存储。',
       importConfirm: '导入备份会覆盖当前本地设置，确定继续吗？'

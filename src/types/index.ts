@@ -144,6 +144,7 @@ export interface AppBackupPayload {
     accounts: Account[]
     activeId: string | null
     lang: Lang
+    launchAtLoginEnabled: boolean
     skipAutoSwitchConfirm: boolean
     refreshIntervalMinutes: RefreshIntervalMinutes
     autoSwitchStrategy: AutoSwitchStrategy
@@ -310,6 +311,8 @@ export interface CodexAPI {
   setActiveId: (id: string | null) => Promise<void>
   getLang: () => Promise<Lang | undefined>
   setLang: (lang: Lang) => Promise<void>
+  getLaunchAtLoginEnabled: () => Promise<boolean | undefined>
+  setLaunchAtLoginEnabled: (value: boolean) => Promise<void>
   getSkipAutoSwitchConfirm: () => Promise<boolean | undefined>
   setSkipAutoSwitchConfirm: (value: boolean) => Promise<void>
   getRefreshIntervalMinutes: () => Promise<number | undefined>

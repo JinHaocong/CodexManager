@@ -1304,6 +1304,13 @@ img {
   font-weight: 700;
 }
 
+.settings-field-hint {
+  margin: -1px 1px 0;
+  color: var(--text-soft);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
 .settings-field select,
 .settings-field input[type="time"] {
   min-height: 34px;

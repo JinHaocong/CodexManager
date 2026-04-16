@@ -85,6 +85,7 @@ function App() {
   const [filter, setFilter] = useState<AccountFilter>("all");
   const [sortKey, setSortKey] = useState<AccountSortKey>("priority");
   const [searchQuery, setSearchQuery] = useState("");
+  const [launchAtLoginEnabled, setLaunchAtLoginEnabled] = useState(false);
   const [refreshIntervalMinutes, setRefreshIntervalMinutes] =
     useState<RefreshIntervalMinutes>(3);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
@@ -166,6 +167,7 @@ function App() {
       // 偏好项统一初始化，避免首屏出现多次闪动或功能先后失效。
       const [
         savedLang,
+        savedLaunchAtLoginEnabled,
         savedSkipAutoSwitchConfirm,
         savedRefreshIntervalMinutes,
         savedAutoSwitchStrategy,
@@ -175,6 +177,7 @@ function App() {
         nextSecureStorageStatus,
       ] = await Promise.all([
         window.codexAPI.getLang(),
+        window.codexAPI.getLaunchAtLoginEnabled(),
         window.codexAPI.getSkipAutoSwitchConfirm(),
         window.codexAPI.getRefreshIntervalMinutes(),
         window.codexAPI.getAutoSwitchStrategy(),
@@ -187,6 +190,7 @@ function App() {
       if (!mounted) return;
 
       if (savedLang) setLang(savedLang);
+      setLaunchAtLoginEnabled(Boolean(savedLaunchAtLoginEnabled));
       setSkipAutoSwitchConfirm(Boolean(savedSkipAutoSwitchConfirm));
       setRefreshIntervalMinutes(
         normalizeRefreshInterval(savedRefreshIntervalMinutes),
@@ -216,6 +220,12 @@ function App() {
       void window.codexAPI.setLang(lang);
     }
   }, [lang, langReady]);
+
+  useEffect(() => {
+    if (preferencesReady) {
+      void window.codexAPI.setLaunchAtLoginEnabled(launchAtLoginEnabled);
+    }
+  }, [launchAtLoginEnabled, preferencesReady]);
 
   useEffect(() => {
     if (preferencesReady) {
@@ -649,6 +659,7 @@ function App() {
         accounts,
         activeId,
         lang,
+        launchAtLoginEnabled,
         skipAutoSwitchConfirm,
         refreshIntervalMinutes,
         autoSwitchStrategy,
@@ -685,6 +696,7 @@ function App() {
     autoSwitchStrategy,
     diagnosticLogs,
     lang,
+    launchAtLoginEnabled,
     notificationSettings,
     pinnedAccountIds,
     refreshIntervalMinutes,
@@ -722,6 +734,7 @@ function App() {
     setAccounts(backup.accounts);
     setActiveId(backup.activeId);
     setLang(backup.lang);
+    setLaunchAtLoginEnabled(Boolean(backup.launchAtLoginEnabled));
     setSkipAutoSwitchConfirm(backup.skipAutoSwitchConfirm);
     setRefreshIntervalMinutes(backup.refreshIntervalMinutes);
     setAutoSwitchStrategy(backup.autoSwitchStrategy);
@@ -772,6 +785,23 @@ function App() {
       }));
     },
     [],
+  );
+
+  /**
+   * 更新开机自启偏好，并记录设置变更，方便排查系统登录项是否同步成功。
+   *
+   * @param value 是否启用开机自启。
+   */
+  const handleLaunchAtLoginChange = useCallback(
+    (value: boolean): void => {
+      setLaunchAtLoginEnabled(value);
+      appendDiagnosticLog({
+        level: "info",
+        category: "settings",
+        message: value ? "已启用开机自启。" : "已关闭开机自启。",
+      });
+    },
+    [appendDiagnosticLog],
   );
 
   useEffect(() => {
@@ -967,6 +997,7 @@ function App() {
         <SettingsPanel
           autoSwitchStrategy={autoSwitchStrategy}
           excludedCount={excludedCount}
+          launchAtLoginEnabled={launchAtLoginEnabled}
           notificationSettings={notificationSettings}
           pinnedCount={pinnedAccountIds.length}
           refreshIntervalMinutes={refreshIntervalMinutes}
@@ -975,6 +1006,7 @@ function App() {
           translations={t}
           onExport={() => void handleExportBackup()}
           onImport={() => void handleImportBackup()}
+          onLaunchAtLoginChange={handleLaunchAtLoginChange}
           onNotificationChange={handleNotificationChange}
           onRefreshIntervalChange={setRefreshIntervalMinutes}
           onSkipAutoSwitchConfirmChange={setSkipAutoSwitchConfirm}
@@ -1000,6 +1032,7 @@ function App() {
           <SettingsPanel
             autoSwitchStrategy={autoSwitchStrategy}
             excludedCount={excludedCount}
+            launchAtLoginEnabled={launchAtLoginEnabled}
             notificationSettings={notificationSettings}
             pinnedCount={pinnedAccountIds.length}
             refreshIntervalMinutes={refreshIntervalMinutes}
@@ -1008,6 +1041,7 @@ function App() {
             translations={t}
             onExport={() => void handleExportBackup()}
             onImport={() => void handleImportBackup()}
+            onLaunchAtLoginChange={handleLaunchAtLoginChange}
             onNotificationChange={handleNotificationChange}
             onRefreshIntervalChange={setRefreshIntervalMinutes}
             onSkipAutoSwitchConfirmChange={setSkipAutoSwitchConfirm}
