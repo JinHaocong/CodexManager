@@ -156,6 +156,25 @@ async function isProcessRunning(processName: string): Promise<boolean> {
 }
 
 /**
+ * 向指定进程发送退出信号。
+ *
+ * 这里不用应用层 `quit`，而是直接发进程信号，避免触发 Codex 自己的确认弹窗。
+ *
+ * @param processName 目标进程名。
+ * @param signal 需要发送的 Unix signal。
+ */
+async function terminateProcess(
+  processName: string,
+  signal: 'TERM' | 'KILL',
+): Promise<void> {
+  try {
+    await execFileAsync('pkill', [`-${signal}`, '-x', processName])
+  } catch {
+    // 进程不存在时 pkill 会返回非 0，这里直接忽略即可。
+  }
+}
+
+/**
  * 等待目标进程退出，避免在原实例尚未关闭时直接 reopen 导致“看起来没重启”。
  *
  * @param processName 需要等待退出的进程名。
@@ -199,16 +218,16 @@ function resolveCodexAppPath(): string {
 async function restartCodexDesktop(): Promise<void> {
   const codexAppPath = resolveCodexAppPath()
 
-  try {
-    await execFileAsync('osascript', [
-      '-e',
-      `tell application "${APP_CONFIG.CODEX_APP_NAME}" to quit`,
-    ])
-  } catch {
-    // Codex 未运行时 osascript 会报错，这种场景直接继续打开即可。
+  // 先尝试温和终止，给 Codex 留出收尾时间。
+  await terminateProcess(APP_CONFIG.CODEX_APP_NAME, 'TERM')
+  await waitForProcessExit(APP_CONFIG.CODEX_APP_NAME, 1800)
+
+  // 若仍未退出，再强制结束，避免 switch 成功但应用没有真正重启。
+  if (await isProcessRunning(APP_CONFIG.CODEX_APP_NAME)) {
+    await terminateProcess(APP_CONFIG.CODEX_APP_NAME, 'KILL')
+    await waitForProcessExit(APP_CONFIG.CODEX_APP_NAME, 1200)
   }
 
-  await waitForProcessExit(APP_CONFIG.CODEX_APP_NAME)
   await delay(250)
   await execFileAsync('open', ['-a', codexAppPath])
 }
