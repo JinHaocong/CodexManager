@@ -12,6 +12,12 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ShellHeader } from "./components/ShellHeader";
 
 import { translations } from "./constants/i18n";
+import {
+  SAGE_THEME_STORAGE_KEY,
+  getSageThemeVariables,
+  isSageThemeColor,
+} from "./constants/theme";
+import type { SageThemeColor } from "./constants/theme";
 
 import { useAccounts } from "./hooks/useAccounts";
 import { useAutoSwitch } from "./hooks/useAutoSwitch";
@@ -50,6 +56,15 @@ const MAX_DIAGNOSTIC_LOGS = 120;
 type AppPage = "accounts" | "strategy" | "system";
 
 /**
+ * 从本地偏好读取 Sage 主题色；异常值统一回落到 teal，避免坏缓存污染界面变量。
+ */
+function readStoredThemeColor(): SageThemeColor {
+  const storedValue = window.localStorage.getItem(SAGE_THEME_STORAGE_KEY);
+
+  return isSageThemeColor(storedValue) ? storedValue : "teal";
+}
+
+/**
  * 计算当前时间是否处于通知静默时段内。
  *
  * @param settings 当前通知配置。
@@ -82,6 +97,8 @@ function App() {
   const [lang, setLang] = useState<Lang>("EN");
   const [langReady, setLangReady] = useState(false);
   const [page, setPage] = useState<AppPage>("accounts");
+  const [themeColor, setThemeColor] =
+    useState<SageThemeColor>(readStoredThemeColor);
   const [filter, setFilter] = useState<AccountFilter>("all");
   const [sortKey, setSortKey] = useState<AccountSortKey>("priority");
   const [searchQuery, setSearchQuery] = useState("");
@@ -263,6 +280,10 @@ function App() {
     }
   }, [diagnosticLogs, preferencesReady]);
 
+  useEffect(() => {
+    window.localStorage.setItem(SAGE_THEME_STORAGE_KEY, themeColor);
+  }, [themeColor]);
+
   const filteredAccounts = useMemo(
     () => getFilteredAccounts(accounts, filter, searchQuery),
     [accounts, filter, searchQuery],
@@ -285,6 +306,10 @@ function App() {
     const formatted = formatTimestamp(lastUpdateAt, lang);
     return t.lastUpdated(formatted || t.meta.never);
   }, [lang, lastUpdateAt, t]);
+  const themeVariables = useMemo(
+    () => getSageThemeVariables(themeColor),
+    [themeColor],
+  );
 
   /**
    * 展示短时轻提示，并在重复点击同一消息时重置消失计时。
@@ -1046,8 +1071,10 @@ function App() {
             onRefreshIntervalChange={setRefreshIntervalMinutes}
             onSkipAutoSwitchConfirmChange={setSkipAutoSwitchConfirm}
             onStrategyChange={setAutoSwitchStrategy}
-            sections={["backup", "security"]}
+            onThemeColorChange={setThemeColor}
+            sections={["appearance", "backup", "security"]}
             showHeader={false}
+            themeColor={themeColor}
           />
 
           <DiagnosticsPanel
@@ -1061,7 +1088,11 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-theme-color={themeColor}
+      style={themeVariables}
+    >
       <div className="app-background app-background--one" />
       <div className="app-background app-background--two" />
 

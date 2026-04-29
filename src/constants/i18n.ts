@@ -88,6 +88,8 @@ export interface AppLocaleText {
     subtitle: string
     strategySection: string
     notificationsSection: string
+    themeSection: string
+    themeHint: string
     backupSection: string
     securitySection: string
     refreshInterval: string
@@ -261,6 +263,8 @@ export const translations = {
       subtitle: 'Tune auto-switch policy, notifications, backup and security in one place.',
       strategySection: 'Auto-switch strategy',
       notificationsSection: 'Notifications',
+      themeSection: 'Appearance',
+      themeHint: 'Choose the workspace accent color. It changes actions, focus rings, selected states and progress indicators only.',
       backupSection: 'Backup',
       securitySection: 'Security',
       refreshInterval: 'Auto refresh',
@@ -460,6 +464,8 @@ export const translations = {
       subtitle: '把自动切换策略、通知、备份和安全能力统一收进这里。',
       strategySection: '自动切换策略',
       notificationsSection: '通知设置',
+      themeSection: '外观主题',
+      themeHint: '选择工作台强调色，只影响操作按钮、焦点光晕、选中态和进度条，不改变账号数据。',
       backupSection: '备份与迁移',
       securitySection: '本地数据安全',
       refreshInterval: '自动刷新',

@@ -1,6 +1,9 @@
 import * as Lucide from 'lucide-react'
 
+import { ThemePicker } from './ThemePicker'
+
 import type { AppLocaleText } from '../constants/i18n'
+import type { SageThemeColor } from '../constants/theme'
 import {
   AUTO_SWITCH_COOLDOWN_OPTIONS,
   REFRESH_INTERVAL_OPTIONS,
@@ -13,7 +16,12 @@ import type {
   SecureStorageStatus,
 } from '../types'
 
-type SettingsSection = 'strategy' | 'notifications' | 'backup' | 'security'
+type SettingsSection =
+  | 'strategy'
+  | 'notifications'
+  | 'appearance'
+  | 'backup'
+  | 'security'
 
 interface Props {
   autoSwitchStrategy: AutoSwitchStrategy
@@ -26,6 +34,7 @@ interface Props {
   sections?: SettingsSection[]
   skipAutoSwitchConfirm: boolean
   showHeader?: boolean
+  themeColor?: SageThemeColor
   onRefreshIntervalChange: (value: RefreshIntervalMinutes) => void
   onSkipAutoSwitchConfirmChange: (value: boolean) => void
   onStrategyChange: (value: AutoSwitchStrategy) => void
@@ -36,6 +45,7 @@ interface Props {
   onExport: () => void
   onImport: () => void
   onLaunchAtLoginChange: (value: boolean) => void
+  onThemeColorChange?: (value: SageThemeColor) => void
   translations: AppLocaleText
 }
 
@@ -53,6 +63,7 @@ export function SettingsPanel({
   sections = ['strategy', 'notifications', 'backup', 'security'],
   skipAutoSwitchConfirm,
   showHeader = true,
+  themeColor,
   onRefreshIntervalChange,
   onSkipAutoSwitchConfirmChange,
   onStrategyChange,
@@ -60,10 +71,13 @@ export function SettingsPanel({
   onExport,
   onImport,
   onLaunchAtLoginChange,
+  onThemeColorChange,
   translations: t,
 }: Props) {
   const showStrategy = sections.includes('strategy')
   const showNotifications = sections.includes('notifications')
+  const showAppearance =
+    sections.includes('appearance') && Boolean(themeColor && onThemeColorChange)
   const showBackup = sections.includes('backup')
   const showSecurity = sections.includes('security')
   const isStrategyLayout =
@@ -254,6 +268,21 @@ export function SettingsPanel({
                 />
               </label>
             </div>
+          </section>
+        )}
+
+        {showAppearance && themeColor && onThemeColorChange && (
+          <section className="settings-card settings-card--appearance">
+            <div className="settings-card-header">
+              <Lucide.Palette size={16} />
+              <strong>{t.settings.themeSection}</strong>
+            </div>
+
+            <div className="settings-theme-row">
+              <ThemePicker value={themeColor} onChange={onThemeColorChange} />
+            </div>
+
+            <p className="settings-hint">{t.settings.themeHint}</p>
           </section>
         )}
 
